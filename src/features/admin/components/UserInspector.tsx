@@ -12,8 +12,8 @@ interface Props {
 }
 
 export default function UserInspector({ userId, isOpen, onClose, allUsers }: Props) {
-  const [userData, setUserData] = useState<any>(null);
-  const [secretData, setSecretData] = useState<any>(null);
+  const [userData, setUserData] = useState<any>(null); // Public Data
+  const [secretData, setSecretData] = useState<any>(null); // Private Data
   const [walletData, setWalletData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   
@@ -30,18 +30,23 @@ export default function UserInspector({ userId, isOpen, onClose, allUsers }: Pro
   const loadDeepData = async () => {
     setLoading(true);
     try {
+        // --- LEFT HAND: Fetch Public Data ---
         const userSnap = await getDoc(doc(db, "users", userId));
         const uData: any = userSnap.exists() ? { id: userSnap.id, ...userSnap.data() } : {};
         setUserData(uData);
 
+        // --- RIGHT HAND: Fetch Secret Data ---
         const secretSnap = await getDoc(doc(db, "user_secrets", userId));
         const sData: any = secretSnap.exists() ? secretSnap.data() : {};
         setSecretData(sData);
 
+        // --- Fetch Wallet ---
         const walletSnap = await getDoc(doc(db, "wallets", userId));
         const balance = walletSnap.exists() ? (walletSnap.data().balance || 0) : 0;
         setWalletData({ balance });
 
+        // --- MERGE LOGIC FOR BOT HUNTING ---
+        // We prefer the Secret Email (Secure), but fallback to Public if missing (Legacy)
         const targetEmail = sData.email || uData.email; 
         
         if (targetEmail) {
@@ -139,7 +144,7 @@ export default function UserInspector({ userId, isOpen, onClose, allUsers }: Pro
                         </div>
                         <div style={{background:'#fefce8', padding:'15px', borderRadius:'12px', border:'1px solid #fef08a'}}>
                             <div style={{fontSize:'0.8rem', color:'#854d0e', marginBottom:'5px', display:'flex', alignItems:'center', gap:'5px'}}><Shield size={14}/> MASTER PIN</div>
-                            <div style={{fontSize:'1.8rem', fontWeight:'bold', fontFamily:'monospace', color:'#854d0e'}}>{secretData?.master_pin || '---'}</div>
+                            <div style={{fontSize:'1.8rem', fontWeight:'bold', fontFamily:'monospace', color:'#854d0e'}}>{secretData?.master_pin || userData?.master_pin || '---'}</div>
                         </div>
                     </div>
 
@@ -148,7 +153,7 @@ export default function UserInspector({ userId, isOpen, onClose, allUsers }: Pro
                         
                         <div style={{display:'grid', gap:'5px', marginBottom:'15px', background:'#f8fafc', padding:'10px', borderRadius:'8px'}}>
                             <div style={{display:'flex', justifyContent:'space-between'}}>
-                                <span style={{color:'#666', fontSize:'0.8rem'}}>Secure Email:</span>
+                                <span style={{color:'#666', fontSize:'0.8rem'}}>Secure Email (Vault):</span>
                                 <span style={{fontWeight:'bold', fontSize:'0.9rem'}}>{secretData?.email || 'N/A'}</span>
                             </div>
                             <div style={{display:'flex', justifyContent:'space-between', borderTop:'1px dashed #ddd', paddingTop:'5px'}}>

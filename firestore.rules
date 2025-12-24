@@ -5,35 +5,37 @@ service cloud.firestore {
     // --- HELPER FUNCTIONS ---
     function isSignedIn() { return request.auth != null; }
     function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    
+    // LAW #17: THE GOD MODE WHITELIST
     function isAdmin() {
       return isSignedIn() && (
         request.auth.token.email == 'rhys@tvmenuswvc.com' || 
         request.auth.token.email == 'rhyshaney@gmail.com'
-      );
+      ); 
     }
 
-    // --- USER DATA ---
+    // --- USER DATA (Public Hub) ---
     match /users/{userId} {
       allow read, write: if isOwner(userId) || isAdmin();
     }
     
+    // --- THE IRON VAULT (PII & SECRETS) ---
+    // UPDATED: Now allows Admin read access for the "Watchtower"
     match /user_secrets/{userId} {
-      allow read, write: if isOwner(userId);
+      allow read, write: if isOwner(userId) || isAdmin();
     }
 
-    // --- THE IRON VAULT (WALLET) ---
+    // --- THE WALLET (Federated Vault) ---
     match /wallets/{userId} {
       allow read: if isOwner(userId) || isAdmin();
-      // Allow creation only with 0 balance
       allow create: if isOwner(userId) && request.resource.data.balance == 0;
-      // Allow update ONLY if balance DECREASES (Spending) or if Admin
       allow update: if isAdmin() || (
         isOwner(userId) && 
         request.resource.data.balance < resource.data.balance
       );
     }
 
-    // --- PUBLIC PROFILES ---
+    // --- PUBLIC PROFILES (The Face) ---
     match /public_profiles/{profileId} {
       allow read: if true;
       allow write: if isSignedIn();
@@ -43,7 +45,6 @@ service cloud.firestore {
     match /compliments/{complimentId} {
       allow read: if true;
       allow create: if isSignedIn();
-      // Allow updates by Sender, Recipient, or the new Claimer
       allow update: if isSignedIn() && (
         resource.data.sender_uid == request.auth.uid || 
         resource.data.recipient_uid == request.auth.uid || 
@@ -86,9 +87,7 @@ service cloud.firestore {
     // --- ADS (BUSINESS) ---
     match /ads/{adId} {
       allow read: if true;
-      // Anyone signed in can Create
       allow create: if isSignedIn();
-      // Only the Owner (by Email) or Admin can Update/Delete
       allow update, delete: if (resource.data.owner_email == request.auth.token.email) || isAdmin();
     }
 
