@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader, Inbox } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
-import { auth, db } from '../../services/firebase';
+import { auth, db } from '../../config/firebase.prod'; // Correct path from features/compliments
 import NavBar from '../../components/NavBar';
 import ActivityDetailModal from './ActivityDetailModal';
+import ActivityList from './components/ActivityList';
 
-export default function ActivityPage() {
+export default function Activity() {
   const navigate = useNavigate();
   const [user, setUser] = useState<any>(null);
   const [activities, setActivities] = useState<any[]>([]);
@@ -29,7 +30,6 @@ export default function ActivityPage() {
   const fetchHistory = async (uid: string) => {
     setLoading(true);
     try {
-      // Fetch SECRETS (Source of Truth for Sender)
       const q = query(
           collection(db, "compliment_secrets"), 
           where("sender_uid", "==", uid),
@@ -60,7 +60,6 @@ export default function ActivityPage() {
       <NavBar user={user} />
       <main className="content-area" style={{marginTop: '60px', maxWidth:'1000px', width:'100%', padding:'20px'}}>
         
-        {/* HEADER */}
         <div style={{marginBottom:'25px', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
             <div>
                 <button onClick={() => navigate('/dashboard')} style={{background:'none', border:'none', cursor:'pointer', display:'flex', alignItems:'center', gap:'5px', color:'#666', marginBottom:'5px', padding:0}}>
@@ -73,51 +72,13 @@ export default function ActivityPage() {
             </div>
         </div>
 
-        {/* LIST */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-            {loading ? (
-                <div className="p-10 text-center text-gray-400"><Loader className="spin mx-auto mb-2"/> Loading records...</div>
-            ) : activities.length === 0 ? (
-                <div className="p-10 text-center text-gray-400">
-                    <Inbox size={40} className="mx-auto mb-2 opacity-20"/>
-                    <p>You haven't sent any compliments yet.</p>
-                    <button onClick={() => navigate('/create')} className="mt-4 bg-teal-600 text-white px-4 py-2 rounded-lg font-bold">Send One Now</button>
-                </div>
-            ) : (
-                <table className="w-full text-left border-collapse">
-                    <thead className="bg-gray-50 text-xs font-bold text-gray-500 uppercase tracking-wider border-b border-gray-100">
-                        <tr>
-                            <th className="p-4">Code</th>
-                            <th className="p-4">Message</th>
-                            <th className="p-4 text-right">Date</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-50">
-                        {activities.map((item) => (
-                            <tr 
-                                key={item.id} 
-                                onClick={() => setSelectedSecret(item)}
-                                className="hover:bg-blue-50 cursor-pointer transition-colors"
-                            >
-                                <td className="p-4">
-                                    <span className="font-mono font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded text-sm">
-                                        {item.search_code}
-                                    </span>
-                                </td>
-                                <td className="p-4 text-gray-700 font-medium">
-                                    <div className="truncate max-w-[200px]">{item.message}</div>
-                                </td>
-                                <td className="p-4 text-right text-gray-400 text-sm">
-                                    {item.timestamp?.seconds ? new Date(item.timestamp.seconds * 1000).toLocaleDateString() : '...'}
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            )}
-        </div>
+        <ActivityList 
+            activities={activities} 
+            loading={loading} 
+            onSelect={setSelectedSecret}
+            onCreate={() => navigate('/create')}
+        />
 
-        {/* MODAL */}
         {selectedSecret && (
             <ActivityDetailModal 
                 isOpen={!!selectedSecret}

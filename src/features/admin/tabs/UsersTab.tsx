@@ -1,15 +1,25 @@
 import { useState, useEffect } from 'react';
-import { Trash2, Lock, Unlock, Coins, Edit2 } from 'lucide-react';
-import { collection, getDocs, doc, deleteDoc, updateDoc, increment } from 'firebase/firestore'; 
-import { db } from '../../../config/firebase.prod';
+import { collection, getDocs, doc, deleteDoc, updateDoc, increment, setDoc } from 'firebase/firestore'; 
+import { db, auth } from '../../../config/firebase.prod';
+import { UserPlus } from 'lucide-react';
+import UserTable from '../components/UserTable';
+import UserInspector from '../components/UserInspector';
 
 export default function UsersTab() {
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  
+  // INSPECTOR STATE
+  const [inspectId, setInspectId] = useState<string | null>(null);
 
-  useEffect(() => { loadUsers(); }, []);
+  useEffect(() => {
+      setCurrentUser(auth.currentUser);
+      loadUsers();
+  }, []);
 
   const loadUsers = async () => {
+      setLoading(true);
       try {
           const snap = await getDocs(collection(db, "users"));
           setUsers(snap.docs.map(d => ({id: d.id, ...d.data()})));
@@ -17,33 +27,79 @@ export default function UsersTab() {
       setLoading(false);
   };
 
-  const toggleEconomyLock = async (userId: string, currentStatus: boolean) => { await updateDoc(doc(db, "users", userId), { economy_unlocked: !currentStatus }); loadUsers(); };
-  const handleGrantCoins = async (userId: string) => { if(!confirm("Grant 100 Coins?")) return; await updateDoc(doc(db, "wallets", userId), { balance: increment(100) }); alert("Coins minted."); };
-  const handleDeleteUser = async (userId: string) => { if(!confirm("⚠️ Delete user?")) return; await deleteDoc(doc(db, "users", userId)); loadUsers(); };
-  const handleResetPin = async (userId: string) => { const newPin = prompt("Enter 5-digit PIN:"); if(!newPin) return; await updateDoc(doc(db, "users", userId), { master_pin: newPin }); loadUsers(); };
+  // ACTIONS
+  const handleGrantCoins = async (userId: string) => { 
+      if(!confirm("Grant 100 Coins?")) return; 
+      await updateDoc(doc(db, "wallets", userId), { balance: increment(100) }); 
+      try { await updateDoc(doc(db, "users", userId), { balance: increment(100) }); } catch(e) {}
+      loadUsers(); 
+      alert("Coins minted."); 
+  };
 
-  if(loading) return <div>Loading Users...</div>;
+  const toggleLock = async (userId: string, currentStatus: boolean) => { 
+      await updateDoc(doc(db, "users", userId), { economy_unlocked: !currentStatus }); 
+      loadUsers(); 
+  };
+
+  const handleUpdateType = async (userId: string, type: string) => {
+      await updateDoc(doc(db, "users", userId), { account_type: type });
+      loadUsers();
+  };
+
+  const handleDelete = async (userId: string) => { 
+      if(!confirm("⚠️ Delete user? This cannot be undone.")) return; 
+      await deleteDoc(doc(db, "users", userId)); 
+      loadUsers(); 
+  };
+
+  const handleSelfRepair = async () => {
+      if (!auth.currentUser) return;
+      const uid = auth.currentUser.uid;
+      const email = auth.currentUser.email;
+      try {
+          await setDoc(doc(db, "users", uid), {
+              display_name: "Super Admin",
+              email: email,
+              account_type: 'admin',
+              balance: 1000000,
+              master_pin: 'ADMIN',
+              is_super_admin: true
+          }, { merge: true });
+          await setDoc(doc(db, "wallets", uid), { balance: 1000000 }, { merge: true });
+          alert("Admin Record Created!");
+          loadUsers();
+      } catch (e) { alert("Repair Failed."); }
+  };
 
   return (
-      <div className="result-card" style={{textAlign:'left'}}>
-          <h3>User Database ({users.length})</h3>
-          <div style={{display:'grid', gap:'10px'}}>
-              {users.map(u => (
-                  <div key={u.id} style={{padding:'15px', background:'#f8fafc', borderRadius:'12px', border:'1px solid #e2e8f0'}}>
-                      <div style={{display:'flex', justifyContent:'space-between'}}>
-                          <div style={{fontWeight:'bold'}}>{u.display_name}</div>
-                          <div style={{fontSize:'0.8rem', fontFamily:'monospace'}}>PIN: {u.master_pin || '❌'}</div>
-                      </div>
-                      <div style={{fontSize:'0.8rem', color:'#666', marginBottom:'10px'}}>{u.email}</div>
-                      <div style={{display:'flex', gap:'10px', flexWrap:'wrap'}}>
-                          <button onClick={() => handleResetPin(u.id)} style={{background:'#e0f2fe', color:'#0369a1', border:'none', padding:'6px 12px', borderRadius:'6px', cursor:'pointer', display:'flex', alignItems:'center', gap:'5px', fontSize:'0.8rem'}}><Edit2 size={14}/> Reset PIN</button>
-                          <button onClick={() => handleDeleteUser(u.id)} style={{background:'#fee2e2', color:'#b91c1c', border:'none', padding:'6px 12px', borderRadius:'6px', cursor:'pointer', display:'flex', alignItems:'center', gap:'5px', fontSize:'0.8rem'}}><Trash2 size={14}/> Delete</button>
-                          <button onClick={() => handleGrantCoins(u.id)} style={{background:'#dcfce7', color:'#166534', border:'none', padding:'6px 12px', borderRadius:'6px', cursor:'pointer', display:'flex', alignItems:'center', gap:'5px', fontSize:'0.8rem'}}><Coins size={14}/> Grant 100</button>
-                          <button onClick={() => toggleEconomyLock(u.id, u.economy_unlocked || false)} style={{display:'flex', alignItems:'center', gap:'6px', padding:'6px 12px', borderRadius:'6px', border:'none', cursor:'pointer', fontSize:'0.8rem', fontWeight:'bold', background: u.economy_unlocked ? '#dcfce7' : '#fee2e2', color: u.economy_unlocked ? '#166534' : '#b91c1c'}}>{u.economy_unlocked ? <><Unlock size={14}/> Open</> : <><Lock size={14}/> Lock</>}</button>
-                      </div>
-                  </div>
-              ))}
+      <div className="result-card" style={{textAlign:'left', background:'#f8fafc'}}>
+          <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'20px'}}>
+              <h3>User Database ({users.length})</h3>
+              {!loading && !users.some(u => u.id === currentUser?.uid) && (
+                  <button onClick={handleSelfRepair} style={{background:'#b91c1c', color:'white', border:'none', padding:'10px 15px', borderRadius:'8px', fontWeight:'bold', cursor:'pointer', display:'flex', alignItems:'center', gap:'8px'}}>
+                      <UserPlus size={18}/> Fix My Admin Account
+                  </button>
+              )}
           </div>
+
+          <UserTable 
+              users={users}
+              loading={loading}
+              onGrantCoins={handleGrantCoins}
+              onToggleLock={toggleLock}
+              onDelete={handleDelete}
+              onUpdateType={handleUpdateType}
+              currentUserId={currentUser?.uid}
+              onInspect={(id) => setInspectId(id)}
+          />
+
+          {/* THE INSPECTOR MODAL */}
+          <UserInspector 
+              userId={inspectId || ''} 
+              isOpen={!!inspectId} 
+              onClose={() => { setInspectId(null); loadUsers(); }}
+              allUsers={users}
+          />
       </div>
   );
 }
