@@ -46,7 +46,6 @@ export default function UserInspector({ userId, isOpen, onClose, allUsers }: Pro
         setWalletData({ balance });
 
         // --- MERGE LOGIC FOR BOT HUNTING ---
-        // We prefer the Secret Email (Secure), but fallback to Public if missing (Legacy)
         const targetEmail = sData.email || uData.email; 
         
         if (targetEmail) {

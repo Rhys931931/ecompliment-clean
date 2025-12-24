@@ -3,12 +3,13 @@ import {
   Shield, ShoppingCart, Users, Layout, Image as ImageIcon, Printer, Eye, MessageSquare 
 } from 'lucide-react';
 import { onAuthStateChanged } from 'firebase/auth';
-import { auth } from '../../config/firebase.prod';
+import { auth, db } from '../../config/firebase.prod';
+import { collection, getDocs } from 'firebase/firestore'; 
 import { useNavigate } from 'react-router-dom';
 import NavBar from '../../components/NavBar';
 import '../../App.css';
 
-// Import the decoupled tabs
+// Import Tabs
 import OrdersTab from './tabs/OrdersTab';
 import UsersTab from './tabs/UsersTab';
 import AdsTab from './tabs/AdsTab';
@@ -17,12 +18,19 @@ import PrintTab from './tabs/PrintTab';
 import VisualsTab from './tabs/VisualsTab';
 import ComplimentsTab from './tabs/ComplimentsTab';
 
+// Import Inspector
+import UserInspector from './components/UserInspector';
+
 export default function SuperAdmin() {
   const [user, setUser] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<'orders' | 'users' | 'ads' | 'themes' | 'print' | 'visuals' | 'compliments'>('orders');
   
-  // Printer Context (Shared State for Order -> Print flow)
+  // State for Print Lab
   const [printContext, setPrintContext] = useState<any>({});
+
+  // State for User Inspector (The Spy Panel)
+  const [inspectId, setInspectId] = useState<string | null>(null);
+  const [allUsers, setAllUsers] = useState<any[]>([]);
 
   const navigate = useNavigate();
 
@@ -31,6 +39,8 @@ export default function SuperAdmin() {
       const allowedAdmins = ['rhys@tvmenuswvc.com', 'rhyshaney@gmail.com']; 
       if (currentUser && allowedAdmins.includes(currentUser.email || '')) {
           setUser(currentUser);
+          // Pre-fetch all users for the "Bot Hunter" logic in Inspector
+          fetchAllUsers(); 
       } else {
           alert("Access Denied.");
           navigate('/dashboard');
@@ -39,12 +49,18 @@ export default function SuperAdmin() {
     return () => unsubscribe();
   }, [navigate]);
 
-  // Handler passed to OrdersTab - Added underscore to _order to silence linter
+  const fetchAllUsers = async () => {
+      try {
+          const snap = await getDocs(collection(db, "users"));
+          setAllUsers(snap.docs.map(d => ({id: d.id, ...d.data()})));
+      } catch(e) { console.error("Background fetch failed", e); }
+  };
+
   const handleLoadToPrinter = (_order: any, customer: any, theme: any) => {
       setPrintContext({
           initialTheme: theme,
           initialCustomer: customer,
-          initialCode: '12345678' // or generate one
+          initialCode: '12345678'
       });
       setActiveTab('print');
   };
@@ -78,7 +94,15 @@ export default function SuperAdmin() {
           {/* RENDER ACTIVE TAB */}
           <div className="fade-in">
               {activeTab === 'orders' && <OrdersTab onLoadToPrinter={handleLoadToPrinter} />}
-              {activeTab === 'users' && <UsersTab />}
+              
+              {/* WIRED UP: Passing onInspect and currentUserId */}
+              {activeTab === 'users' && (
+                  <UsersTab 
+                      onInspect={(id) => setInspectId(id)} 
+                      currentUserId={user?.uid}
+                  />
+              )}
+              
               {activeTab === 'ads' && <AdsTab />}
               {activeTab === 'themes' && <ThemesTab />}
               {activeTab === 'compliments' && <ComplimentsTab />}
@@ -91,6 +115,14 @@ export default function SuperAdmin() {
                   />
               )}
           </div>
+
+          {/* THE INSPECTOR MODAL */}
+          <UserInspector 
+              userId={inspectId || ''} 
+              isOpen={!!inspectId} 
+              onClose={() => { setInspectId(null); fetchAllUsers(); }}
+              allUsers={allUsers}
+          />
 
       </main>
     </div>

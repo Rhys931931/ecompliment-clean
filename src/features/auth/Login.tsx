@@ -29,7 +29,6 @@ export default function Login() {
       let needsCommit = false;
 
       // 1. Update Public User Hub (The Admin List View)
-      // We force the email here so your Admin Table isn't empty
       if (!userSnap.exists()) {
           const blind = 'u_' + Date.now();
           batch.set(userRef, { 
@@ -44,7 +43,7 @@ export default function Login() {
           batch.set(doc(db, 'public_profiles', blind), { display_name: name, bio: 'New user', photo_url: user.photoURL });
           needsCommit = true;
       } else {
-          // Self-Heal: If email is missing in Hub (Legacy Users), add it now
+          // Self-Heal: If email is missing in Hub, add it now
           if (!userSnap.data().email && user.email) {
               batch.update(userRef, { email: user.email });
               needsCommit = true;
