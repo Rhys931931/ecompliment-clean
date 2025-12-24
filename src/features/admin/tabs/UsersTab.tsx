@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Trash2, Lock, Unlock, Shield, Bot, User, Eye, Sparkles, RefreshCw, AlertTriangle, FileText } from 'lucide-react';
+import { Trash2, Lock, Unlock, Shield, Bot, User, Eye, Sparkles, RefreshCw, FileText, CheckCircle, XCircle, Cloud } from 'lucide-react';
 import { collection, getDocs, doc, deleteDoc, updateDoc, increment, writeBatch } from 'firebase/firestore'; 
-import { db, auth } from '../../../config/firebase.prod';
+import { httpsCallable } from 'firebase/functions';
+import { db, auth, functions } from '../../../config/firebase.prod';
 
 interface UserData {
   id: string;
@@ -23,9 +24,11 @@ export default function UsersTab({ onInspect, currentUserId }: Props) {
   const [users, setUsers] = useState<UserData[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
-  const [debugLog, setDebugLog] = useState<string>("");
+  const [logs, setLogs] = useState<string[]>([]);
 
   useEffect(() => { loadUsers(); }, []);
+
+  const addLog = (msg: string) => setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
 
   const loadUsers = async () => {
       setLoading(true);
@@ -36,86 +39,99 @@ export default function UsersTab({ onInspect, currentUserId }: Props) {
       setLoading(false);
   };
 
-  // --- THE DEBUG CRAWLER ---
-  const handleSyncDatabase = async () => {
-      if (!confirm("Start Diagnostic Sync? Check Console (F12) for details.")) return;
+  // --- ☁️ DEEP CLOUD SYNC ---
+  const handleDeepSync = async () => {
+      if(!confirm("⚠️ Run Cloud Deep Sync?\n\nThis reads the Master Auth List from Google Servers and repairs ALL missing user records.\n\nRequires 'Blaze' plan.")) return;
       
       setSyncing(true);
-      setDebugLog("Initializing Admin Protocol...\n");
+      addLog("☁️ INITIATING DEEP CLOUD SYNC...");
+      try {
+          const syncFn = httpsCallable(functions, 'syncAuthToFirestore');
+          const result: any = await syncFn();
+          addLog("✅ " + result.data.message);
+          alert("✅ " + result.data.message);
+          loadUsers();
+      } catch (e: any) {
+          console.error(e);
+          addLog("❌ Deep Sync Failed: " + e.message);
+          alert("Deep Sync Failed: " + e.message);
+      } finally {
+          setSyncing(false);
+      }
+  };
+
+  // --- 🕵️ THE SHERLOCK CRAWLER (Local) ---
+  const handleSyncDatabase = async () => {
+      if (!confirm("Run Diagnostic Sync? This will attempt to fix missing emails.")) return;
+      
+      setSyncing(true);
+      setLogs([]); // Clear previous logs
+      addLog("🚀 INITIALIZING SYNC PROTOCOL...");
       
       try {
-          const currentUser = auth.currentUser;
+          const user = auth.currentUser;
+          addLog(`👤 User: ${user?.email} (UID: ${user?.uid})`);
           
-          // 1. IDENTITY CHECK
-          console.log("--- 🕵️ ARCHIE DIAGNOSTICS ---");
-          console.log("Logged in as:", currentUser?.email);
-          console.log("UID:", currentUser?.uid);
-          setDebugLog(prev => prev + `User: ${currentUser?.email} (${currentUser?.uid})\n`);
+          if (user?.email !== 'rhys@tvmenuswvc.com' && user?.email !== 'rhyshaney@gmail.com') {
+              throw new Error("⛔ EMAIL MISMATCH: Your login email is not in the Admin Whitelist.");
+          }
 
-          if (!currentUser) throw new Error("No User Logged In");
-
-          // 2. VAULT ACCESS CHECK
-          setDebugLog(prev => prev + "Attempting to open Iron Vault (user_secrets)...\n");
-          console.log("Requesting Read Access to 'user_secrets'...");
-          
+          addLog("🔐 Attempting to unlock 'user_secrets'...");
           const vaultSnap = await getDocs(collection(db, "user_secrets"));
           
-          console.log("✅ ACCESS GRANTED. Secrets Found:", vaultSnap.size);
-          setDebugLog(prev => prev + `✅ Vault Unlocked! Found ${vaultSnap.size} records.\n`);
-
+          addLog(`✅ ACCESS GRANTED! Found ${vaultSnap.size} secret records.`);
+          
           if (vaultSnap.empty) {
-              alert("Sync Stopped: The Vault (user_secrets) is empty. Nothing to copy.");
+              addLog("⚠️ The Vault is empty. No data to sync.");
               setSyncing(false);
               return;
           }
 
-          // 3. EXECUTE SYNC
+          addLog("⚙️ Analyzing data consistency...");
           const batch = writeBatch(db);
-          let updateCount = 0;
+          let patchCount = 0;
 
           vaultSnap.docs.forEach((secretDoc) => {
-              const data = secretDoc.data();
+              const secret = secretDoc.data();
               const uid = secretDoc.id; 
-
-              // If secret has an email, stamp it onto the public user card
-              if (data.email) {
-                  const userRef = doc(db, "users", uid);
-                  batch.update(userRef, { 
-                      email: data.email,
-                      real_name: data.real_name || ''
-                  });
-                  updateCount++;
-                  console.log(`Queueing update for: ${uid} -> ${data.email}`);
+              const publicUser = users.find(u => u.id === uid);
+              
+              if (secret.email) {
+                  if (!publicUser || !publicUser.email) {
+                      const userRef = doc(db, "users", uid);
+                      batch.update(userRef, { 
+                          email: secret.email,
+                          real_name: secret.real_name || ''
+                      });
+                      patchCount++;
+                      addLog(`🔧 PATCH: Adding email for ${uid.slice(0,5)}...`);
+                  }
               }
           });
 
-          setDebugLog(prev => prev + `Queueing ${updateCount} updates...\n`);
-
-          // 4. COMMIT
-          await batch.commit();
-          console.log("Batch Commit Successful.");
-          setDebugLog(prev => prev + "✅ SUCCESS: Database Synchronized.\n");
-          
-          alert(`✅ Success!\n\nSynced ${updateCount} records.\nEmails should now appear in the list.`);
-          loadUsers(); 
-
-      } catch (e: any) {
-          console.error("❌ SYNC FATAL ERROR:", e);
-          
-          let tip = "Unknown Error";
-          if (e.code === 'permission-denied') {
-              tip = "🚨 PERMISSION DENIED 🚨\n\nYour Firestore Rules blocked this request.\n\n1. Did you run 'npm run deploy:compliment'?\n2. Is 'firestore.rules' definitely checking for YOUR email?\n3. Firebase rules can take up to 2 minutes to propagate.";
+          if (patchCount === 0) {
+              addLog("✨ Database is already perfectly synced.");
+          } else {
+              addLog(`💾 Committing ${patchCount} fixes to database...`);
+              await batch.commit();
+              addLog("✅ SYNC COMPLETE.");
+              loadUsers(); 
           }
 
-          setDebugLog(prev => prev + `❌ ERROR: ${e.code} - ${e.message}\n`);
-          alert(`❌ SYNC FAILED\n\nCode: ${e.code}\n\n${tip}`);
+      } catch (e: any) {
+          console.error(e);
+          addLog(`❌ FATAL ERROR: ${e.code || 'Unknown'}`);
+          addLog(`👉 ${e.message}`);
+          
+          if (e.code === 'permission-denied') {
+             addLog("🚨 ROOT CAUSE: Firestore Rules blocked you.");
+             addLog("💡 FIX: Run 'npm run deploy:compliment' to push your new rules.");
+          }
       } finally {
           setSyncing(false);
-          console.log("--- DIAGNOSTICS END ---");
       }
   };
 
-  // Standard Helpers
   const toggleLock = async (id: string, status: boolean) => { await updateDoc(doc(db, "users", id), { economy_unlocked: !status }); loadUsers(); };
   const grantCoins = async (id: string) => { if(!confirm("Grant 100?")) return; await updateDoc(doc(db, "wallets", id), { balance: increment(100) }); loadUsers(); };
   const deleteUser = async (id: string) => { if(!confirm("Delete?")) return; await deleteDoc(doc(db, "users", id)); loadUsers(); };
@@ -143,24 +159,39 @@ export default function UsersTab({ onInspect, currentUserId }: Props) {
     <div style={{textAlign:'left'}}>
         <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'20px'}}>
             <h3>User Database ({users.length})</h3>
-            <button 
-                onClick={handleSyncDatabase} 
-                disabled={syncing}
-                style={{
-                    background: syncing ? '#ccc' : '#1e293b', color:'white', border:'none', 
-                    padding:'10px 15px', borderRadius:'8px', cursor: syncing ? 'wait' : 'pointer',
-                    display:'flex', alignItems:'center', gap:'8px', fontWeight:'bold'
-                }}
-            >
-                <RefreshCw size={18} className={syncing ? 'spin' : ''}/> {syncing ? 'Running Diagnostics...' : 'Sync Database'}
-            </button>
+            <div style={{display:'flex', gap:'10px'}}>
+                <button 
+                    onClick={handleDeepSync} 
+                    disabled={syncing}
+                    style={{
+                        background: syncing ? '#ccc' : '#7c3aed', color:'white', border:'none', 
+                        padding:'10px 15px', borderRadius:'8px', cursor: syncing ? 'wait' : 'pointer',
+                        display:'flex', alignItems:'center', gap:'8px', fontWeight:'bold'
+                    }}
+                >
+                    <Cloud size={18} className={syncing ? 'spin' : ''}/> {syncing ? 'Working...' : 'Deep Cloud Sync'}
+                </button>
+                <button 
+                    onClick={handleSyncDatabase} 
+                    disabled={syncing}
+                    style={{
+                        background: syncing ? '#ccc' : '#1e293b', color:'white', border:'none', 
+                        padding:'10px 15px', borderRadius:'8px', cursor: syncing ? 'wait' : 'pointer',
+                        display:'flex', alignItems:'center', gap:'8px', fontWeight:'bold'
+                    }}
+                >
+                    <RefreshCw size={18} className={syncing ? 'spin' : ''}/> {syncing ? 'Analyzing...' : 'Run Diagnostics'}
+                </button>
+            </div>
         </div>
 
-        {/* DEBUG LOG OUTPUT */}
-        {debugLog && (
-            <div style={{background:'#1e1e1e', color:'#00ff00', padding:'15px', borderRadius:'8px', marginBottom:'20px', fontFamily:'monospace', fontSize:'0.8rem', whiteSpace:'pre-wrap', border:'1px solid #333'}}>
-                <div style={{color:'#888', borderBottom:'1px solid #333', paddingBottom:'5px', marginBottom:'10px', fontWeight:'bold', display:'flex', gap:'10px', alignItems:'center'}}><FileText size={14}/> SYSTEM LOG</div>
-                {debugLog}
+        {/* DIAGNOSTIC CONSOLE */}
+        {logs.length > 0 && (
+            <div style={{background:'#111', color:'#00ff00', padding:'15px', borderRadius:'8px', marginBottom:'20px', fontFamily:'monospace', fontSize:'0.85rem', border:'2px solid #333', maxHeight:'200px', overflowY:'auto'}}>
+                <div style={{borderBottom:'1px solid #333', paddingBottom:'5px', marginBottom:'10px', fontWeight:'bold', color:'#888', display:'flex', gap:'10px', alignItems:'center'}}>
+                    <FileText size={14}/> SYSTEM LOG
+                </div>
+                {logs.map((log, i) => <div key={i}>{log}</div>)}
             </div>
         )}
 
@@ -174,7 +205,6 @@ export default function UsersTab({ onInspect, currentUserId }: Props) {
                 }}>
                     <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
                         <div style={{display:'flex', alignItems:'center', gap:'12px'}}>
-                            {/* Avatar */}
                             <div onClick={() => onInspect(u.id)} style={{
                                 width:'50px', height:'50px', borderRadius:'50%', cursor:'pointer',
                                 border:`2px solid ${getTypeColor(u.account_type)}`, 
@@ -199,15 +229,14 @@ export default function UsersTab({ onInspect, currentUserId }: Props) {
                                 </div>
                             </div>
 
-                            {/* Info */}
                             <div>
                                 <div style={{fontWeight:'bold', fontSize:'1rem', color:'#333', display:'flex', alignItems:'center', gap:'6px'}}>
                                     {u.display_name}
                                     {u.id === currentUserId && <span style={{fontSize:'0.6rem', background:'#4da6a9', color:'white', padding:'1px 5px', borderRadius:'4px'}}>ME</span>}
                                 </div>
                                 <div style={{fontSize:'0.8rem', color: u.email ? '#64748b' : '#ef4444', fontWeight: u.email ? 'normal' : 'bold', display:'flex', alignItems:'center', gap:'5px'}}>
-                                    {!u.email && <AlertTriangle size={12}/>}
-                                    {u.email || 'Email Missing'}
+                                    {u.email ? <CheckCircle size={12} color="#16a34a"/> : <XCircle size={12} color="#ef4444"/>}
+                                    {u.email || 'Missing Email'}
                                 </div>
                             </div>
                         </div>
