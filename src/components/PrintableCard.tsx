@@ -38,7 +38,7 @@ const PrintableCard = forwardRef<HTMLDivElement, PrintableCardProps>(({
       top: `${data.top}%`,
       left: `${data.left}%`,
       transform: `translate(-50%, -50%) scale(${data.scale})`,
-      zIndex: 10,
+      zIndex: 20, // Content sits above background
       color: data.color || textColor, 
     };
 
@@ -57,7 +57,7 @@ const PrintableCard = forwardRef<HTMLDivElement, PrintableCardProps>(({
         style.backgroundColor = data.qrBgColor || 'white';
     }
 
-    // The Shadow Engine (Math: Polar -> Cartesian)
+    // The Shadow Engine
     if (data.shadow) {
         const angleRad = (data.shadowAngle || 45) * (Math.PI / 180);
         const dist = data.shadowDistance || 5;
@@ -72,21 +72,20 @@ const PrintableCard = forwardRef<HTMLDivElement, PrintableCardProps>(({
     return style;
   };
 
-  // 4. Determine QR URL
-  // Default: ecompliment.app/?t=THEME_ID (The "Time Capsule")
   const qrUrl = qrCodeValue || `https://ecompliment.app/?t=${theme.id || 'default'}`;
 
   return (
-    // OUTER WRAPPER: Handles the scaling so it fits on screen
+    // OUTER WRAPPER: Scaling Context
     <div style={{
         width: `${BASE_WIDTH * scale}px`,
         height: `${BASE_HEIGHT * scale}px`,
         overflow: 'hidden',
-        boxShadow: '0 10px 40px rgba(0,0,0,0.1)', // UI Shadow only
+        boxShadow: '0 10px 40px rgba(0,0,0,0.1)',
         borderRadius: '8px',
-        margin: '0 auto'
+        margin: '0 auto',
+        position: 'relative'
     }}>
-       {/* INNER CANVAS: Always renders at High-Res 1050x600 */}
+       {/* INNER CANVAS: Fixed High-Res Context */}
        <div ref={ref} style={{
            width: `${BASE_WIDTH}px`,
            height: `${BASE_HEIGHT}px`,
@@ -94,34 +93,41 @@ const PrintableCard = forwardRef<HTMLDivElement, PrintableCardProps>(({
            transformOrigin: 'top left',
            position: 'relative',
            backgroundColor: primaryColor,
-           backgroundImage: backgroundImageUrl ? `url(${backgroundImageUrl})` : 'none',
-           backgroundSize: 'cover',
-           backgroundPosition: 'center',
            overflow: 'hidden',
            fontFamily: 'Arial, sans-serif'
        }}>
-            {/* BACKGROUND BANNER STRIP */}
+            {/* LAYER 0: BACKGROUND IMAGE (Fixed for Download) */}
+            {backgroundImageUrl && (
+                <img 
+                    src={backgroundImageUrl}
+                    crossOrigin="anonymous" // <--- THE MAGIC KEY FOR DOWNLOADING
+                    style={{
+                        position: 'absolute', inset: 0, width: '100%', height: '100%', 
+                        objectFit: 'cover', zIndex: 0
+                    }} 
+                />
+            )}
+
+            {/* LAYER 1: BANNER STRIP */}
             <div style={{
                 position: 'absolute', top: 0, left: 0, width: '100%',
                 height: `${layout.bannerHeight}%`,
                 backgroundColor: primaryColor, 
-                zIndex: 1
+                zIndex: 10,
+                mixBlendMode: 'multiply' // Makes it blend nicely with bg
             }} />
 
-            {/* ELEMENT 1: WHITE BOX ZONE */}
+            {/* ELEMENTS */}
             <div style={getStyle('whiteBox')} />
 
-            {/* ELEMENT 2: HEADER TEXT */}
             <div style={{...getStyle('headerText'), fontSize: '32px', fontWeight:'bold', letterSpacing:'-1px'}}>
                 e-compliment
             </div>
             
-            {/* ELEMENT 3: FOOTER URL */}
             <div style={{...getStyle('footerText'), fontSize: '18px', fontWeight:'bold', letterSpacing:'1px', opacity:0.9}}>
                 https://www.ecompliment.app
             </div>
 
-            {/* ELEMENT 4: PIN CODE */}
             <div style={{...getStyle('pinText'), textAlign:'center'}}>
                 <div style={{fontSize:'14px', textTransform:'uppercase', letterSpacing:'2px', marginBottom:'5px', opacity:0.7}}>Secret PIN</div>
                 <div style={{fontSize:'42px', fontFamily:'monospace', fontWeight:'900', letterSpacing:'4px'}}>
@@ -129,16 +135,19 @@ const PrintableCard = forwardRef<HTMLDivElement, PrintableCardProps>(({
                 </div>
             </div>
 
-            {/* ELEMENT 5: USER PHOTO */}
-            <div style={{...getStyle('photo'), overflow:'hidden', width:'180px', height:'180px', borderRadius:'50%', display:'flex', justifyContent:'center', alignItems:'center'}}>
+            <div style={{...getStyle('photo'), overflow:'hidden', width:'180px', height:'180px', borderRadius:'50%', display:'flex', justifyContent:'center', alignItems:'center', border:'4px solid white'}}>
                  {userPhoto ? (
-                     <img src={userPhoto} alt="User" style={{width:'100%', height:'100%', objectFit:'cover'}} />
+                     <img 
+                        src={userPhoto} 
+                        crossOrigin="anonymous" // <--- THE MAGIC KEY
+                        alt="User" 
+                        style={{width:'100%', height:'100%', objectFit:'cover'}} 
+                     />
                  ) : (
                      <div style={{width:'100%', height:'100%', background:'#cbd5e1', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'3rem', fontWeight:'bold'}}>IMG</div>
                  )}
             </div>
 
-            {/* ELEMENT 6: QR CODE */}
             <div style={{...getStyle('qr'), display:'flex', justifyContent:'center', alignItems:'center'}}>
                 <QRCodeSVG 
                     value={qrUrl} 

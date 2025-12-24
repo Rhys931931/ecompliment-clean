@@ -1,13 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
-import type { ChangeEvent } from 'react';
 import { 
-  Shield, Layout, Users, Printer, Image as ImageIcon, Upload, Trash2, 
-  Plus, Lock, Unlock, Coins, Download, ExternalLink, ShoppingCart, Truck, CheckCircle, MessageSquare, Edit2, PackagePlus, AlertCircle, Check, Eye
+  Shield, Layout, Users, Printer, Image as ImageIcon, Trash2, 
+  Plus, Lock, Unlock, Coins, Download, ExternalLink, ShoppingCart, Truck, CheckCircle, MessageSquare, Edit2, PackagePlus, AlertCircle, Check, Eye, Palette
 } from 'lucide-react';
 import { collection, addDoc, getDocs, deleteDoc, doc, updateDoc, serverTimestamp, query, orderBy, increment, writeBatch } from 'firebase/firestore'; 
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { onAuthStateChanged } from 'firebase/auth';
-import { db, auth, storage } from '../../config/firebase.prod';
+import { db, auth } from '../../config/firebase.prod';
 import { useNavigate } from 'react-router-dom';
 import { toPng } from 'html-to-image';
 import { saveAs } from 'file-saver';
@@ -38,12 +36,7 @@ export default function SuperAdmin() {
   const [couponCode, setCouponCode] = useState('');
   const [color, setColor] = useState('#4da6a9');
   const [ownerEmail, setOwnerEmail] = useState('');
-  const [themeName, setThemeName] = useState('');
-  const [themePrimaryColor, setThemePrimaryColor] = useState('#4da6a9');
-  const [themeTextColor, setThemeTextColor] = useState('#ffffff');
-  const [themeImageFile, setThemeImageFile] = useState<File | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
-
+  
   const printRef = useRef<HTMLDivElement>(null);
   const [printCode, setPrintCode] = useState('12345678');
   const [printTheme, setPrintTheme] = useState<ThemeData | null>(null);
@@ -102,10 +95,8 @@ export default function SuperAdmin() {
   const handleDeleteUser = async (userId: string) => { if(!confirm("⚠️ DANGER: Delete user?")) return; await deleteDoc(doc(db, "users", userId)); setUsers(prev => prev.filter(u => u.id !== userId)); };
   const handleResetPin = async (userId: string) => { const newPin = prompt("Enter new 5-digit Master PIN:"); if(!newPin || newPin.length !== 5) return alert("Must be 5 digits."); await updateDoc(doc(db, "users", userId), { master_pin: newPin }); loadAllData(); alert("PIN Updated!"); };
   const handleDeleteCompliment = async (id: string) => { if(!confirm("Delete compliment?")) return; await deleteDoc(doc(db, "compliments", id)); setCompliments(prev => prev.filter(c => c.id !== id)); };
-  const handleSeedThemes = async () => { if(!confirm("Create starter themes?")) return; const batch = writeBatch(db); const starters = [ { name: 'Classic Teal', primaryColor: '#4da6a9', textColor: '#333333', backgroundImageUrl: '' }, { name: 'Midnight', primaryColor: '#1e293b', textColor: '#ffffff', backgroundImageUrl: '' }, { name: 'Gold Standard', primaryColor: '#d97706', textColor: '#ffffff', backgroundImageUrl: '' } ]; starters.forEach(t => { const ref = doc(collection(db, 'themes')); batch.set(ref, { ...t, createdAt: serverTimestamp() }); }); await batch.commit(); loadAllData(); alert("Themes created!"); };
-  const handleImageChange = (e: ChangeEvent<HTMLInputElement>) => { if (e.target.files && e.target.files[0]) setThemeImageFile(e.target.files[0]); };
-  const handleCreateTheme = async () => { if (!themeName || !themeImageFile) return; setIsUploading(true); const imageRef = ref(storage, `theme-backgrounds/${Date.now()}_${themeImageFile.name}`); await uploadBytes(imageRef, themeImageFile); const downloadURL = await getDownloadURL(imageRef); await addDoc(collection(db, "themes"), { name: themeName, backgroundImageUrl: downloadURL, primaryColor: themePrimaryColor, textColor: themeTextColor, createdAt: serverTimestamp() }); setIsUploading(false); loadAllData(); };
   const handleDeleteTheme = async (id: string) => { if (confirm("Delete?")) { await deleteDoc(doc(db, "themes", id)); loadAllData(); }};
+  const handleSeedThemes = async () => { if(!confirm("Create starter themes?")) return; const batch = writeBatch(db); const starters = [ { name: 'Classic Teal', primaryColor: '#4da6a9', textColor: '#333333', backgroundImageUrl: '' }, { name: 'Midnight', primaryColor: '#1e293b', textColor: '#ffffff', backgroundImageUrl: '' }, { name: 'Gold Standard', primaryColor: '#d97706', textColor: '#ffffff', backgroundImageUrl: '' } ]; starters.forEach(t => { const ref = doc(collection(db, 'themes')); batch.set(ref, { ...t, createdAt: serverTimestamp() }); }); await batch.commit(); loadAllData(); alert("Themes created!"); };
   const handleMarkShipped = async (orderId: string) => { if(confirm("Complete?")) { await updateDoc(doc(db, "orders", orderId), { status: 'shipped' }); loadAllData(); }};
   
   const handleLoadOrderToPrinter = async (order: OrderData) => { 
@@ -266,7 +257,6 @@ export default function SuperAdmin() {
               </div>
           )}
 
-          {/* ... (Keep other tabs largely the same) ... */}
           {activeTab === 'compliments' && (
               <div className="result-card" style={{textAlign:'left'}}>
                   <h3>Database Cleanup</h3>
@@ -287,17 +277,28 @@ export default function SuperAdmin() {
 
           {activeTab === 'themes' && (
             <div className="result-card" style={{textAlign:'left'}}>
-                <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'20px'}}>
                     <h3>Theme Manager</h3>
-                    <button onClick={handleSeedThemes} style={{background:'#dcfce7', color:'#166534', border:'none', padding:'8px 12px', borderRadius:'8px', cursor:'pointer', display:'flex', gap:'5px', fontWeight:'bold'}}><PackagePlus size={18}/> Seed Starters</button>
+                    <button onClick={() => navigate('/admin/builder')} style={{background:'#8b5cf6', color:'white', border:'none', padding:'8px 16px', borderRadius:'8px', cursor:'pointer', display:'flex', gap:'5px', fontWeight:'bold'}}><Palette size={18}/> Open Theme Studio</button>
                 </div>
-                <div style={{display:'grid', gap:'15px', marginBottom:'20px', marginTop:'20px'}}>
-                    <div><label className="input-label">Theme Name</label><input className="text-input" value={themeName} onChange={e => setThemeName(e.target.value)} placeholder="e.g., Blue Cubes"/></div>
-                    <div><label className="input-label">Background Image</label><div style={{display:'flex', gap:'10px', alignItems:'center'}}><label htmlFor="theme-image-upload" style={{cursor:'pointer', display:'flex', alignItems:'center', gap:'5px', padding:'8px 12px', background:'#f1f5f9', borderRadius:'6px', border:'1px solid #cbd5e1', fontSize:'0.9rem'}}><Upload size={16}/> {themeImageFile ? 'Change Image' : 'Upload Image'}</label><input id="theme-image-upload" type="file" accept="image/*" onChange={handleImageChange} style={{display:'none'}} />{themeImageFile && <span style={{fontSize:'0.8rem', color:'#666'}}>{themeImageFile.name}</span>}</div></div>
-                    <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'15px'}}><div><label className="input-label">Primary Color</label><input type="color" className="text-input" value={themePrimaryColor} onChange={e => setThemePrimaryColor(e.target.value)} style={{height:'45px', padding:'5px'}}/></div><div><label className="input-label">Text Color</label><input type="color" className="text-input" value={themeTextColor} onChange={e => setThemeTextColor(e.target.value)} style={{height:'45px', padding:'5px'}}/></div></div>
-                    <button onClick={handleCreateTheme} disabled={isUploading || !themeName || !themeImageFile} className="claim-btn" style={{marginTop:'10px', justifyContent:'center', opacity: (isUploading || !themeName || !themeImageFile) ? 0.7 : 1}}>{isUploading ? 'Uploading...' : <><Plus size={18}/> Create Theme</>}</button>
+                
+                <button onClick={handleSeedThemes} style={{background:'#dcfce7', color:'#166534', border:'none', padding:'8px 12px', borderRadius:'8px', cursor:'pointer', display:'flex', gap:'5px', fontWeight:'bold', marginBottom:'20px'}}><PackagePlus size={18}/> Seed Starters</button>
+
+                <div style={{borderTop:'1px solid #eee', paddingTop:'20px'}}>
+                    <h4 style={{margin:'0 0 15px 0', color:'#666'}}>Existing Themes ({themes.length})</h4>
+                    <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(200px, 1fr))', gap:'15px'}}>
+                        {themes.map(theme => (
+                            <div key={theme.id} style={{border:'1px solid #eee', borderRadius:'8px', overflow:'hidden', position:'relative'}}>
+                                <div style={{height:'100px', backgroundImage: theme.backgroundImageUrl ? `url(${theme.backgroundImageUrl})` : 'none', backgroundColor: theme.primaryColor, backgroundSize:'cover', backgroundPosition:'center', display:'flex', alignItems:'flex-end'}}>
+                                    <div style={{width:'100%', padding:'5px 10px', backgroundColor: theme.primaryColor, color: theme.textColor, fontSize:'0.8rem', fontWeight:'bold'}}>{theme.name}</div>
+                                </div>
+                                <button onClick={() => theme.id && handleDeleteTheme(theme.id)} style={{position:'absolute', top:'5px', right:'5px', background:'rgba(255,255,255,0.8)', border:'none', borderRadius:'50%', width:'24px', height:'24px', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'#ef4444'}}>
+                                    <Trash2 size={14}/>
+                                </button>
+                            </div>
+                        ))}
+                    </div>
                 </div>
-                <div style={{borderTop:'1px solid #eee', marginTop:'30px', paddingTop:'20px'}}><h4 style={{margin:'0 0 15px 0', color:'#666'}}>Existing Themes ({themes.length})</h4><div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(200px, 1fr))', gap:'15px'}}>{themes.map(theme => (<div key={theme.id} style={{border:'1px solid #eee', borderRadius:'8px', overflow:'hidden', position:'relative'}}><div style={{height:'100px', backgroundImage: `url(${theme.backgroundImageUrl})`, backgroundSize:'cover', backgroundPosition:'center', display:'flex', alignItems:'flex-end'}}><div style={{width:'100%', padding:'5px 10px', backgroundColor: theme.primaryColor, color: theme.textColor, fontSize:'0.8rem', fontWeight:'bold'}}>{theme.name}</div></div><button onClick={() => theme.id && handleDeleteTheme(theme.id)} style={{position:'absolute', top:'5px', right:'5px', background:'rgba(255,255,255,0.8)', border:'none', borderRadius:'50%', width:'24px', height:'24px', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'#ef4444'}}><Trash2 size={14}/></button></div>))}</div></div>
             </div>
           )}
 
