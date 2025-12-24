@@ -1,0 +1,38 @@
+import { useState, useEffect } from 'react';
+import { Trash2 } from 'lucide-react';
+import { collection, getDocs, deleteDoc, doc } from 'firebase/firestore'; 
+import { db } from '../../../config/firebase.prod';
+
+export default function ComplimentsTab() {
+  const [compliments, setCompliments] = useState<any[]>([]);
+
+  useEffect(() => {
+      getDocs(collection(db, "compliments")).then(snap => {
+          setCompliments(snap.docs.map(d => ({id: d.id, ...d.data()})));
+      });
+  }, []);
+
+  const handleDelete = async (id: string) => { 
+      if(!confirm("Delete?")) return; 
+      await deleteDoc(doc(db, "compliments", id)); 
+      setCompliments(prev => prev.filter(c => c.id !== id)); 
+  };
+
+  return (
+      <div className="result-card" style={{textAlign:'left'}}>
+          <h3>Database Cleanup</h3>
+          <div style={{display:'grid', gap:'10px'}}>
+              {compliments.map(c => (
+                  <div key={c.id} style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px', background:'#f8fafc', borderRadius:'8px', border:'1px solid #eee'}}>
+                      <div style={{overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>
+                          <div style={{fontWeight:'bold'}}>{c.recipient_name}</div>
+                          <div style={{fontSize:'0.8rem', color:'#666'}}>{c.message ? c.message.substring(0,40) : 'No message'}...</div>
+                          <div style={{fontSize:'0.7rem', color: c.search_code ? '#166534' : '#b91c1c', fontWeight:'bold'}}>{c.search_code ? `Code: ${c.search_code}` : '⚠️ OLD DATA (No Code)'}</div>
+                      </div>
+                      <button onClick={() => handleDelete(c.id)} style={{color:'#ef4444', background:'none', border:'none', cursor:'pointer'}}><Trash2 size={18}/></button>
+                  </div>
+              ))}
+          </div>
+      </div>
+  );
+}

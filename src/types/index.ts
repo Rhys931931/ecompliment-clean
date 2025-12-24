@@ -84,6 +84,7 @@ export interface ThemeLayout {
 export interface ThemeData {
   id?: string;
   name: string;
+  status?: 'active' | 'archived'; // <--- NEW: The Purgatory Flag
   primaryColor: string;
   textColor: string;
   backgroundImageUrl?: string;
@@ -91,37 +92,44 @@ export interface ThemeData {
   createdAt?: FieldValue;
 }
 
-// Default "Classic Business Card" Layout
+// Default "Classic Business Card" Layout (With your Custom Numbers)
 export const DEFAULT_LAYOUT: ThemeLayout = {
     bannerHeight: 25,
     
-    headerText: { top: 8, left: 8, scale: 1.0, visible: true, color: '#ffffff' },
-    footerText: { top: 92, left: 50, scale: 1.0, visible: true, color: '#ffffff' },
+    headerText: { 
+        top: 11, left: 21, scale: 1.8, visible: true, color: '#ffffff', shadow: false 
+    },
+    footerText: { 
+        top: 90, left: 57, scale: 2.2, visible: true, color: '#ffffff', shadow: false 
+    },
     
     photo: { 
-        top: 50, left: 15, scale: 1.2, visible: true,
+        top: 45, left: 17, scale: 1.6, visible: true,
         shadow: true, shadowAngle: 45, shadowDistance: 5, shadowBlur: 10, shadowOpacity: 0.3
     },
     
     qr: { 
         top: 50, left: 85, scale: 1.2, visible: true,
-        frame: true, frameColor: '#ffffff', qrBgColor: '#ffffff', qrFgColor: '#000000',
-        shadow: true, shadowAngle: 45, shadowDistance: 5, shadowBlur: 10, shadowOpacity: 0.2
+        frame: true, frameColor: '#176c70', qrBgColor: '#ffffff', qrFgColor: '#000000',
+        shadow: true, shadowAngle: 59, shadowDistance: 15, shadowBlur: 8, shadowOpacity: 0.5
     },
     
     whiteBox: { 
-        top: 50, left: 50, width: 40, height: 60, scale: 1.0, visible: true,
+        top: 61, left: 50, width: 55, height: 30, scale: 1.0, visible: true,
         borderRadius: 12, backgroundColor: '#ffffff',
-        shadow: true, shadowAngle: 90, shadowDistance: 4, shadowBlur: 15, shadowOpacity: 0.1
+        shadow: true, shadowAngle: 33, shadowDistance: 31, shadowBlur: 15, shadowOpacity: 0.4
     },
     
-    pinText: { top: 50, left: 50, scale: 1.5, visible: true, color: '#333333' }
+    pinText: { 
+        top: 81, left: 13, scale: 1.0, visible: true, color: '#272f4e' 
+    }
 };
 
 export const DEFAULT_THEME: ThemeData = {
-    name: 'Classic Teal',
+    name: 'New Custom Theme',
+    status: 'active',
     primaryColor: '#4da6a9',
-    textColor: '#333333',
+    textColor: '#ffffff',
     backgroundImageUrl: '',
     layout: DEFAULT_LAYOUT
 };
