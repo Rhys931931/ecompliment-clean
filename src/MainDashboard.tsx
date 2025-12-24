@@ -1,55 +1,18 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { auth, db } from './config/firebase.prod';
-import { doc, getDoc, updateDoc } from 'firebase/firestore'; 
-import { onAuthStateChanged } from 'firebase/auth';
 import { 
     Plus, Settings, Coins, Loader, ShoppingBag, Bell, 
     Activity, Compass, Users, MessageCircle, Star, 
-    Megaphone, ShieldAlert, LayoutDashboard, Ticket, Palette
+    Megaphone, ShieldAlert, LayoutDashboard, Ticket, Palette, FolderHeart
 } from 'lucide-react'; 
 import NavBar from './components/NavBar';
 import ProfileModal from './components/ProfileModal';
+import { useDashboardData } from './hooks/useDashboardData';
 
 export default function MainDashboard() {
-  const [user, setUser] = useState<any>(null);
-  const [userData, setUserData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const { user, loading, displayName, photoURL, isSuperAdmin, isBusiness, balance } = useDashboardData();
   const [showProfileModal, setShowProfileModal] = useState(false);
   const navigate = useNavigate();
-
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      if (currentUser) {
-        setUser(currentUser);
-        ensureMasterPin(currentUser.uid);
-        const userDoc = await getDoc(doc(db, "users", currentUser.uid));
-        if (userDoc.exists()) {
-          setUserData(userDoc.data());
-        }
-      } else {
-        navigate('/login');
-      }
-      setLoading(false);
-    });
-    return () => unsubscribe();
-  }, [navigate]);
-
-  const ensureMasterPin = async (uid: string) => {
-      try {
-          const userRef = doc(db, "users", uid);
-          const userSnap = await getDoc(userRef);
-          if (userSnap.exists()) {
-              const data = userSnap.data();
-              if (!data.master_pin) {
-                  const safeChars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-                  let newPin = '';
-                  for (let i = 0; i < 5; i++) newPin += safeChars.charAt(Math.floor(Math.random() * safeChars.length));
-                  await updateDoc(userRef, { master_pin: newPin });
-              }
-          }
-      } catch (err) { console.error("Auto-Fix failed:", err); }
-  };
 
   if (loading) return <div className="app-container"><Loader className="spin" size={40} color="#4da6a9"/></div>;
 
@@ -85,14 +48,12 @@ export default function MainDashboard() {
       </div>
   );
 
-  const displayName = userData?.display_name?.split(' ')[0] || user?.displayName?.split(' ')[0] || 'Friend';
-  const photoURL = userData?.photo_url || user?.photoURL;
-  const IS_SUPER_ADMIN_EMAIL = user?.email === 'rhys@tvmenuswvc.com' || user?.email === 'rhyshaney@gmail.com';
-
   return (
     <div className="app-container" style={{padding:0, background:'#f8fafc'}}>
       <NavBar user={user} />
       <main className="content-area" style={{marginTop: '60px', maxWidth:'1000px', width:'100%', padding:'20px'}}>
+        
+        {/* HEADER */}
         <div style={{marginBottom:'25px', display:'flex', alignItems:'center', justifyContent:'space-between'}}>
             <div style={{textAlign:'left'}}>
                 <h1 style={{margin:0, color:'#333', fontSize:'1.8rem'}}>Hello, {displayName}</h1>
@@ -107,31 +68,35 @@ export default function MainDashboard() {
             </div>
         </div>
 
+        {/* PRIMARY ACTIONS */}
         <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'15px', marginBottom:'25px'}}>
             <GridCard icon={Plus} label="Create New" description="Send a compliment." onClick={() => navigate('/create')} bgColor="#1e293b" color="white" />
             <GridCard icon={Bell} label="Notifications" description="View Alerts" onClick={() => navigate('/notifications')} color="#ef4444" />
-            <GridCard icon={Activity} label="Activity" description="Views & Claims." onClick={() => navigate('/activity')} color="#0ea5e9" />
+            <GridCard icon={Activity} label="Activity" description="Cards Sent." onClick={() => navigate('/activity')} color="#0ea5e9" />
             <GridCard icon={Compass} label="Next Steps" description="Your Checklist." onClick={() => navigate('/onboarding')} color="#f59e0b" />
         </div>
 
+        {/* QUICK ACCESS LIST */}
         <h3 style={{textAlign:'left', color:'#999', marginBottom:'10px', textTransform:'uppercase', fontSize:'0.75rem', letterSpacing:'1px'}}>Quick Access</h3>
         <div style={{display:'grid', gridTemplateColumns:'1fr', gap:'15px', marginBottom:'30px'}}>
+            <ActionCard icon={FolderHeart} label="My Wallet" description="Cards you received." onClick={() => navigate('/wallet')} color="#ec4899" />
             <ActionCard icon={Star} label="My Reviews" description="See what people say about you." onClick={() => navigate('/reviews')} color="#f59e0b" />
             <ActionCard icon={Users} label="Connections" description="Your network & friends." onClick={() => navigate('/connections')} />
             <ActionCard icon={MessageCircle} label="Chats" description="Your conversations." onClick={() => navigate('/chats')} />
-            <ActionCard icon={Coins} label="My Balance" description={`${userData?.balance || 0} Coins available.`} onClick={() => navigate('/balance')} color="#0d9488" />
-            <ActionCard icon={Ticket} label="Ad Inventory" description="Select coupons to give away." onClick={() => navigate('/ad-store')} color="#ec4899" />
+            <ActionCard icon={Coins} label="My Balance" description={`${balance} Coins available.`} onClick={() => navigate('/balance')} color="#0d9488" />
+            <ActionCard icon={Ticket} label="Ad Inventory" description="Select coupons to give away." onClick={() => navigate('/ad-store')} color="#8b5cf6" />
             <ActionCard icon={ShoppingBag} label="Card Store" description="Buy cards & skins." onClick={() => navigate('/marketplace')} />
-            <ActionCard icon={Megaphone} label={userData?.is_business ? "Business Portal" : "Advertise with Us"} description={userData?.is_business ? "Manage your campaigns." : "Promote your business here."} onClick={() => navigate(userData?.is_business ? '/business' : '/business-intro')} color="#7c3aed" />
+            <ActionCard icon={Megaphone} label={isBusiness ? "Business Portal" : "Advertise with Us"} description={isBusiness ? "Manage your campaigns." : "Promote your business here."} onClick={() => navigate(isBusiness ? '/business' : '/business-intro')} color="#7c3aed" />
             <ActionCard icon={Settings} label="Settings" description="App preferences." onClick={() => navigate('/settings')} />
         </div>
 
-        {(userData?.is_business || userData?.is_super_admin || IS_SUPER_ADMIN_EMAIL) && (
+        {/* ADMIN ZONE */}
+        {(isBusiness || isSuperAdmin) && (
             <>
                 <h3 style={{textAlign:'left', color:'#999', marginBottom:'10px', textTransform:'uppercase', fontSize:'0.75rem', letterSpacing:'1px'}}>Admin Zone</h3>
                 <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(200px, 1fr))', gap:'15px'}}>
-                    {userData?.is_business && <ActionCard icon={LayoutDashboard} label="Business Portal" description="Manage ads & stats." onClick={() => navigate('/business')} />}
-                    {(userData?.is_super_admin || IS_SUPER_ADMIN_EMAIL) && (
+                    {isBusiness && <ActionCard icon={LayoutDashboard} label="Business Portal" description="Manage ads & stats." onClick={() => navigate('/business')} />}
+                    {isSuperAdmin && (
                         <>
                             <ActionCard icon={ShieldAlert} label="Super Admin" description="Master control panel." onClick={() => navigate('/superadmin')} color="#ef4444" />
                             <ActionCard icon={Palette} label="Theme Studio" description="Design & Layout Cards." onClick={() => navigate('/admin/builder')} color="#8b5cf6" />
