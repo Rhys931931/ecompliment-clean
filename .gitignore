@@ -30,3 +30,4 @@ firebase-debug.*.log*
 .vscode
 .ideafunctions/node_modules
 functions/node_modules/
+*.zip
