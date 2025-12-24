@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { doc, getDoc, updateDoc } from 'firebase/firestore'; 
 import { onAuthStateChanged } from 'firebase/auth';
-import { auth, db } from '../config/firebase.prod';
+import { auth, db } from '../../config/firebase.prod'; // ../../config now
 import { useNavigate } from 'react-router-dom';
 
 export function useDashboardData() {

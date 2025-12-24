@@ -5,11 +5,12 @@ import {
     Activity, Compass, Users, MessageCircle, Star, 
     Megaphone, ShieldAlert, LayoutDashboard, Ticket, Palette, FolderHeart
 } from 'lucide-react'; 
-import NavBar from './components/NavBar';
-import ProfileModal from './components/ProfileModal';
-import { useDashboardData } from './hooks/useDashboardData';
+// Fix imports: Go up two levels
+import NavBar from '../../components/NavBar';
+import ProfileModal from '../../components/ProfileModal';
+import { useDashboardData } from './useDashboardData'; // Local import now
 
-export default function MainDashboard() {
+export default function Dashboard() {
   const { user, loading, displayName, photoURL, isSuperAdmin, isBusiness, balance } = useDashboardData();
   const [showProfileModal, setShowProfileModal] = useState(false);
   const navigate = useNavigate();

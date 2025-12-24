@@ -28,7 +28,7 @@ import BusinessIntro from './features/ads/BusinessIntro';
 import BusinessDashboard from './features/ads/BusinessDashboard';
 
 // Admin
-import MainDashboard from './MainDashboard';
+import MainDashboard from './features/dashboard/Dashboard';
 import NotificationsPage from './features/notifications/NotificationsPage';
 import SettingsPage from './features/settings/SettingsPage';
 import SuperAdmin from './features/admin/SuperAdmin';
