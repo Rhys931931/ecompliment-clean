@@ -2,6 +2,7 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // --- HELPER FUNCTIONS ---
     function isSignedIn() { return request.auth != null; }
     function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
     function isAdmin() {
@@ -11,6 +12,7 @@ service cloud.firestore {
       );
     }
 
+    // --- USER DATA ---
     match /users/{userId} {
       allow read, write: if isOwner(userId) || isAdmin();
     }
@@ -19,7 +21,7 @@ service cloud.firestore {
       allow read, write: if isOwner(userId);
     }
 
-    // --- THE IRON VAULT RULE ---
+    // --- THE IRON VAULT (WALLET) ---
     match /wallets/{userId} {
       allow read: if isOwner(userId) || isAdmin();
       // Allow creation only with 0 balance
@@ -30,16 +32,18 @@ service cloud.firestore {
         request.resource.data.balance < resource.data.balance
       );
     }
-    // ---------------------------
 
+    // --- PUBLIC PROFILES ---
     match /public_profiles/{profileId} {
       allow read: if true;
       allow write: if isSignedIn();
     }
 
+    // --- COMPLIMENTS (CARDS) ---
     match /compliments/{complimentId} {
       allow read: if true;
       allow create: if isSignedIn();
+      // Allow updates by Sender, Recipient, or the new Claimer
       allow update: if isSignedIn() && (
         resource.data.sender_uid == request.auth.uid || 
         resource.data.recipient_uid == request.auth.uid || 
@@ -55,6 +59,7 @@ service cloud.firestore {
       );
     }
 
+    // --- MESSAGING ---
     match /chats/{chatId} {
       allow read, write: if isSignedIn() && (
         request.auth.uid in resource.data.participants ||
@@ -72,16 +77,22 @@ service cloud.firestore {
       );
     }
 
+    // --- ASSETS ---
     match /themes/{themeId} {
       allow read: if true;
       allow write: if isAdmin();
     }
 
+    // --- ADS (BUSINESS) ---
     match /ads/{adId} {
       allow read: if true;
-      allow write: if isSignedIn();
+      // Anyone signed in can Create
+      allow create: if isSignedIn();
+      // Only the Owner (by Email) or Admin can Update/Delete
+      allow update, delete: if (resource.data.owner_email == request.auth.token.email) || isAdmin();
     }
 
+    // --- COMMERCE ---
     match /transactions/{txnId} {
       allow read: if isOwner(resource.data.uid);
       allow create: if isOwner(request.resource.data.uid);
