@@ -1,0 +1,106 @@
+/* --- GLOBAL RESET & VARS --- */
+:root {
+  --brand-teal: #4da6a9;
+  --brand-dark: #1e293b;
+  --text-slate: #64748b;
+  --glass-bg: rgba(255, 255, 255, 0.85); /* <--- IMPROVED CONTRAST (was 0.95) */
+  --safe-top: env(safe-area-inset-top);
+  --safe-bottom: env(safe-area-inset-bottom);
+}
+
+body, html {
+  margin: 0;
+  padding: 0;
+  font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  background-color: #f8fafc;
+  color: #333;
+  -webkit-font-smoothing: antialiased;
+  height: 100%;
+}
+
+/* --- LAYOUT CONTAINER --- */
+.app-container {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed; 
+  transition: background-image 0.5s ease-in-out;
+}
+
+.content-area {
+  width: 100%;
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 80px 20px 40px 20px;
+  box-sizing: border-box;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+/* --- NAVBAR --- */
+.navbar {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 60px;
+  background: var(--glass-bg); /* Default glass */
+  backdrop-filter: blur(10px);
+  z-index: 1000;
+  box-shadow: 0 1px 0 rgba(0,0,0,0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: var(--safe-top);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.nav-content {
+  width: 100%; max-width: 1000px; padding: 0 20px;
+  display: flex; justify-content: space-between; align-items: center;
+}
+
+.menu-btn {
+  background: none; border: none; color: inherit; cursor: pointer; padding: 8px; border-radius: 50%;
+}
+
+/* --- DRAWER (Stays White for readability) --- */
+.drawer-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 2000; opacity: 0; pointer-events: none; transition: opacity 0.3s; backdrop-filter: blur(2px); }
+.drawer-overlay.open { opacity: 1; pointer-events: auto; }
+.drawer { position: absolute; top: 0; right: 0; bottom: 0; width: 80%; max-width: 300px; background: white; transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: -5px 0 25px rgba(0,0,0,0.15); padding-top: calc(60px + var(--safe-top)); }
+.drawer-overlay.open .drawer { transform: translateX(0); }
+.drawer-link { display: flex; align-items: center; gap: 15px; padding: 15px 20px; text-decoration: none; color: #333; font-weight: 600; border-left: 3px solid transparent; }
+.drawer-link:active { background: #f8fafc; border-left-color: var(--brand-teal); }
+
+/* --- CARDS & INPUTS --- */
+.result-card { background: white; border-radius: 20px; padding: 25px; box-shadow: 0 10px 40px -10px rgba(0,0,0,0.1); margin-bottom: 20px; border: 1px solid rgba(0,0,0,0.05); }
+.glass-card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px);
+  border-radius: 24px;
+  padding: 40px 30px;
+  box-shadow: 0 20px 50px -12px rgba(0,0,0,0.2);
+  border: 1px solid rgba(255,255,255,0.8);
+  text-align: center;
+}
+
+.text-input { width: 100%; padding: 14px; border: 2px solid #e2e8f0; border-radius: 12px; font-size: 1rem; background: #f8fafc; box-sizing: border-box; margin-bottom: 15px; transition: all 0.2s; text-align: center; font-weight: bold; letter-spacing: 1px; }
+.text-input:focus { outline: none; background: white; border-color: var(--brand-teal); box-shadow: 0 0 0 4px rgba(77, 166, 169, 0.1); }
+.input-label { display: block; font-size: 0.8rem; font-weight: 700; color: var(--text-slate); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+/* --- BUTTONS --- */
+.claim-btn { display: flex; align-items: center; gap: 8px; border: none; padding: 14px 24px; border-radius: 14px; font-weight: 700; font-size: 1rem; cursor: pointer; transition: transform 0.1s, opacity 0.2s; }
+.claim-btn:active { transform: scale(0.97); }
+.claim-btn.primary { background: var(--brand-dark); color: white; }
+.claim-btn.accent { background: var(--brand-teal); color: white; }
+
+/* --- UTILS --- */
+.fade-in { animation: fadeIn 0.5s ease-out; }
+.slide-up { animation: slideUp 0.4s ease-out; }
+.spin { animation: spin 1s linear infinite; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+@keyframes spin { 100% { transform: rotate(360deg); } }

@@ -1,0 +1,32 @@
+# Dependencies
+/node_modules
+
+# Build artifacts
+/build
+/dist
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment variables
+# Keep your secret keys and environment-specific settings out of source control
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Firebase
+# Cache and debug logs
+.firebase/
+firebase-debug.log*
+firebase-debug.*.log*
+
+# Editor directories and files
+.vscode
+.ideafunctions/node_modules
+functions/node_modules/
