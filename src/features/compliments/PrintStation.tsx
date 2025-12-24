@@ -49,7 +49,7 @@ export default function PrintStation() {
                   <PrintableCard 
                       ref={printRef}
                       theme={DEFAULT_THEME} 
-                      code="" // No specific code needed for master cards
+                      qrCodeValue="https://ecompliment.app" // Master Link
                       scale={0.3} 
                       userPhoto={user?.photoURL}
                       userPin={myPin}

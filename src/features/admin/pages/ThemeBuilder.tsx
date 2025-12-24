@@ -189,7 +189,7 @@ export default function ThemeBuilder() {
                             backgroundImageUrl: bgImage,
                             layout: layout
                         }}
-                        code="12345678"
+                        qrCodeValue="12345678"
                         userPin="ABC12"
                         scale={1}
                     />

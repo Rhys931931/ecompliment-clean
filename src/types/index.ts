@@ -1,3 +1,6 @@
+import { FieldValue } from 'firebase/firestore';
+
+// --- APP DATA TYPES ---
 export interface ComplimentData {
   id: string;
   message: string;
@@ -12,6 +15,10 @@ export interface ComplimentData {
   ad_ids?: string[]; 
   is_severed?: boolean;
   tip_amount?: number;
+  magic_token?: string;
+  claimer_name?: string;
+  status?: string;
+  createdAt?: any;
 }
 
 export interface AdData {
@@ -27,25 +34,51 @@ export interface ChatMessage {
   text: string;
   sender: string;
   timestamp: any;
+  type?: string;
+  senderUid?: string;
+  senderName?: string;
 }
 
-// --- LAYOUT ENGINE ---
+// --- THEME & LAYOUT ENGINE (V5 High Fidelity) ---
+
 export interface ElementStyle {
-  top: number;  // % from top
-  left: number; // % from left
-  scale: number; // 1 = 100%
-  width?: number; // % width (for boxes)
-  height?: number; // % height (for boxes)
+  // Positioning
+  top: number;      // %
+  left: number;     // %
+  scale: number;    // Multiplier
   visible: boolean;
+  
+  // Dimensions
+  width?: number;   // %
+  height?: number;  // %
+  
+  // Styling
+  color?: string;           // Text color / Main color
+  backgroundColor?: string; // Box background
+  borderRadius?: number;    // px
+  
+  // QR Specifics
+  frame?: boolean;
+  frameColor?: string;
+  qrFgColor?: string; // Specific QR dots color
+  qrBgColor?: string; // Specific QR background
+  
+  // Shadow Engine
+  shadow?: boolean;       // On/Off
+  shadowAngle?: number;   // Degrees (0-360)
+  shadowDistance?: number;// px
+  shadowBlur?: number;    // px
+  shadowOpacity?: number; // 0-1
 }
 
 export interface ThemeLayout {
-  bannerHeight: number; // %
+  bannerHeight: number;
   photo: ElementStyle;
   qr: ElementStyle;
   whiteBox: ElementStyle;
   pinText: ElementStyle;
-  website: ElementStyle;
+  headerText: ElementStyle;
+  footerText: ElementStyle;
 }
 
 export interface ThemeData {
@@ -53,24 +86,42 @@ export interface ThemeData {
   name: string;
   primaryColor: string;
   textColor: string;
-  backgroundImageUrl: string;
-  layout?: ThemeLayout; // <--- OPTIONAL NOW
+  backgroundImageUrl?: string;
+  layout: ThemeLayout;
+  createdAt?: FieldValue;
 }
 
-// Default "Classic Teal" Layout
+// Default "Classic Business Card" Layout
 export const DEFAULT_LAYOUT: ThemeLayout = {
-  bannerHeight: 22,
-  photo: { top: 15, left: 10, scale: 1, visible: true },
-  qr: { top: 15, left: 75, scale: 1, visible: true },
-  whiteBox: { top: 55, left: 50, width: 55, height: 20, scale: 1, visible: true },
-  pinText: { top: 38, left: 10, scale: 1, visible: true },
-  website: { top: 92, left: 50, scale: 1, visible: true }
+    bannerHeight: 25,
+    
+    headerText: { top: 8, left: 8, scale: 1.0, visible: true, color: '#ffffff' },
+    footerText: { top: 92, left: 50, scale: 1.0, visible: true, color: '#ffffff' },
+    
+    photo: { 
+        top: 50, left: 15, scale: 1.2, visible: true,
+        shadow: true, shadowAngle: 45, shadowDistance: 5, shadowBlur: 10, shadowOpacity: 0.3
+    },
+    
+    qr: { 
+        top: 50, left: 85, scale: 1.2, visible: true,
+        frame: true, frameColor: '#ffffff', qrBgColor: '#ffffff', qrFgColor: '#000000',
+        shadow: true, shadowAngle: 45, shadowDistance: 5, shadowBlur: 10, shadowOpacity: 0.2
+    },
+    
+    whiteBox: { 
+        top: 50, left: 50, width: 40, height: 60, scale: 1.0, visible: true,
+        borderRadius: 12, backgroundColor: '#ffffff',
+        shadow: true, shadowAngle: 90, shadowDistance: 4, shadowBlur: 15, shadowOpacity: 0.1
+    },
+    
+    pinText: { top: 50, left: 50, scale: 1.5, visible: true, color: '#333333' }
 };
 
 export const DEFAULT_THEME: ThemeData = {
-    name: 'Classic',
+    name: 'Classic Teal',
     primaryColor: '#4da6a9',
     textColor: '#333333',
-    backgroundImageUrl: 'linear-gradient(180deg, rgba(77, 166, 169, 0.15) 0%, #ffffff 100%)',
+    backgroundImageUrl: '',
     layout: DEFAULT_LAYOUT
 };

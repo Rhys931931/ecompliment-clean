@@ -103,7 +103,6 @@ export default function Marketplace() {
                     <div style={{borderRadius:'12px', overflow:'hidden', boxShadow:'0 10px 30px rgba(0,0,0,0.1)'}}>
                          <PrintableCard 
                             theme={selectedTheme} 
-                            code="" 
                             scale={0.28} 
                             userPhoto={user?.photoURL} 
                             userPin={myPin} 

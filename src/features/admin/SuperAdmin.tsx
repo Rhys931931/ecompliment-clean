@@ -13,7 +13,7 @@ import { toPng } from 'html-to-image';
 import { saveAs } from 'file-saver';
 import NavBar from '../../components/NavBar';
 import PrintableCard from '../../components/PrintableCard';
-import type { ThemeData } from '../../types'; // <--- FIXED: Type-only import
+import type { ThemeData } from '../../types'; 
 import '../../App.css';
 
 interface AdData { id: string; name: string; offer: string; color: string; coupon_code: string; owner_email?: string; status?: string; }
@@ -208,7 +208,7 @@ export default function SuperAdmin() {
                                       <PrintableCard 
                                           theme={theme} 
                                           scale={0.25} 
-                                          code="12345678" 
+                                          qrCodeValue="12345678" 
                                           userPin="ABC12" 
                                       />
                                   </div>
@@ -310,7 +310,7 @@ export default function SuperAdmin() {
                             <PrintableCard 
                                 ref={printRef}
                                 theme={printTheme}
-                                code="" 
+                                qrCodeValue={printCode} 
                                 scale={0.5}
                                 userPhoto={printCustomer.photo} 
                                 userPin={printCustomer.pin}     
