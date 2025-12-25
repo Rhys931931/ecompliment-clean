@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Trash2 } from 'lucide-react';
-import { collection, getDocs, deleteDoc, doc } from 'firebase/firestore'; 
+import { collection, getDocs, deleteDoc, doc, getDoc, query, where } from 'firebase/firestore'; 
 import { db } from '../../../config/firebase.prod';
 
 export default function ComplimentsTab() {
@@ -13,9 +13,37 @@ export default function ComplimentsTab() {
   }, []);
 
   const handleDelete = async (id: string) => { 
-      if(!confirm("Delete?")) return; 
-      await deleteDoc(doc(db, "compliments", id)); 
-      setCompliments(prev => prev.filter(c => c.id !== id)); 
+      if(!confirm("Delete this card AND its secret record?")) return; 
+      
+      try {
+          // 1. Get the public card to find the link (search_code)
+          const cardRef = doc(db, "compliments", id);
+          const cardSnap = await getDoc(cardRef);
+          
+          if (cardSnap.exists()) {
+              const data = cardSnap.data();
+              
+              // 2. Find and delete the secret (Linked by search_code)
+              if (data.search_code) {
+                  const q = query(collection(db, "compliment_secrets"), where("search_code", "==", data.search_code));
+                  const secretSnap = await getDocs(q);
+                  
+                  // Delete all matching secrets (usually just one)
+                  const deletePromises = secretSnap.docs.map(d => deleteDoc(d.ref));
+                  await Promise.all(deletePromises);
+              }
+          }
+
+          // 3. Delete the public card
+          await deleteDoc(cardRef); 
+          
+          // 4. Update UI
+          setCompliments(prev => prev.filter(c => c.id !== id)); 
+          
+      } catch (e) {
+          console.error("Cleanup failed:", e);
+          alert("Error deleting files.");
+      }
   };
 
   return (

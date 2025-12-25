@@ -11,7 +11,6 @@ const isAdmin = (email) => {
 
 // 1. SEND COMPLIMENT
 exports.sendCompliment = functions.https.onCall(async (data, context) => {
-    // Basic Auth Check
     if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Login required');
     
     const uid = context.auth.uid;
@@ -79,9 +78,9 @@ exports.sendCompliment = functions.https.onCall(async (data, context) => {
     });
 });
 
-// 2. CREATE CLAIM (THE GUEST CHAT STARTER)
+// 2. CREATE CLAIM (THE SMART FIX)
 exports.createClaim = functions.https.onCall(async (data, context) => {
-    // Allow Anonymous users (Guests)
+    // Allow Anonymous users
     if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'User must be guest or logged in.');
 
     const uid = context.auth.uid;
@@ -92,9 +91,25 @@ exports.createClaim = functions.https.onCall(async (data, context) => {
     if (!compSnap.exists) throw new functions.https.HttpsError('not-found', 'Compliment not found.');
     
     const compData = compSnap.data();
-    const senderUid = compData.sender_uid;
+    let senderUid = compData.sender_uid;
 
-    // Unique Chat ID per Guest
+    // --- SELF-HEALING LOGIC ---
+    // If sender_uid is missing from public card, find it in the secret vault
+    if (!senderUid && compData.search_code) {
+         console.log("Repairing missing sender_uid...");
+         const secretQuery = await db.collection('compliment_secrets')
+                                     .where('search_code', '==', compData.search_code)
+                                     .limit(1)
+                                     .get();
+         if (!secretQuery.empty) {
+             senderUid = secretQuery.docs[0].data().sender_uid;
+             // Fix the public record for next time
+             await compRef.update({ sender_uid: senderUid });
+         }
+    }
+
+    if (!senderUid) throw new functions.https.HttpsError('failed-precondition', 'Owner not found.');
+
     const chatId = `chat_${complimentId}_${uid}`;
     const chatRef = db.collection('chats').doc(chatId);
 
@@ -108,7 +123,7 @@ exports.createClaim = functions.https.onCall(async (data, context) => {
         status: 'active'
     }, { merge: true });
 
-    return { chatId };
+    return {YZ chatId };
 });
 
 // 3. APPROVE CLAIM
