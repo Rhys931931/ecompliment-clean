@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { collection, query, where, getDocs, doc, updateDoc, serverTimestamp, getDoc } from 'firebase/firestore'; 
-import { db, auth } from '../../config/firebase.prod';
+import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore'; 
+import { httpsCallable } from 'firebase/functions';
+import { signInAnonymously } from 'firebase/auth';
+import { db, auth, functions } from '../../config/firebase.prod';
 import NavBar from '../../components/NavBar';
 import { GhostProtocol } from '../../services/GhostProtocol';
 
@@ -53,14 +55,17 @@ export default function DigitalBulletinBoard() {
           const snap = await getDocs(q);
           if (!snap.empty) {
               const docData = { id: snap.docs[0].id, ...snap.docs[0].data() } as any;
-              if (docData.magic_token_status === 'consumed') {
-                  setError("This card has already been claimed.");
-                  setCompliment(null); 
-              } else {
-                  const burned = await GhostProtocol.validateAndBurn(docData.id, token);
-                  if (burned) { setCompliment(docData); setIsUnlocked(true); } 
-                  else { setError("Security Check Failed."); }
-              }
+              // Validate Token
+              const burned = await GhostProtocol.validateAndBurn(docData.id, token);
+              if (burned) { 
+                  setCompliment(docData); 
+                  setIsUnlocked(true); 
+                  // SILENT LOGIN: Give them a Guest ID immediately if they aren't logged in
+                  if (!auth.currentUser) {
+                      await signInAnonymously(auth);
+                  }
+              } 
+              else { setError("Security Check Failed."); }
           } else { setError("Invalid Magic Link."); }
       } catch (err) { console.error(err); setError("Connection failed."); }
       setLoading(false);
@@ -80,34 +85,50 @@ export default function DigitalBulletinBoard() {
       setLoading(false);
   };
 
-  const handleClaim = async () => {
+  // --- OPTION 1: GUEST CHAT (NO LOGIN REQ) ---
+  const handleReply = async () => {
       if (!compliment) return;
-      if (!auth.currentUser) {
-          localStorage.setItem('pending_claim_id', compliment.id);
-          navigate('/login');
-          return;
-      }
-      if (auth.currentUser.uid === compliment.sender_uid) return alert("You can't claim your own card!");
-      
       setLoading(true);
+      
       try {
-          await updateDoc(doc(db, "compliments", compliment.id), {
-              status: 'pending_approval',
-              claimer_uid: auth.currentUser.uid,
-              claimer_name: auth.currentUser.displayName || 'Anonymous',
-              claimed_at: serverTimestamp()
-          });
-          setCompliment({ ...compliment, status: 'pending_approval' });
-          navigate(`/chat/${compliment.id}`);
-      } catch (err) { console.error(err); setError("Could not claim."); }
+          // Ensure we have at least an Anonymous User
+          if (!auth.currentUser) {
+              await signInAnonymously(auth);
+          }
+
+          // Use the Cloud Function to create the chat
+          // Because we are anonymous, it will create chat_{compliment}_{anonID}
+          const createClaimFn = httpsCallable(functions, 'createClaim');
+          const result: any = await createClaimFn({ complimentId: compliment.id });
+          
+          navigate(`/chat/${result.data.chatId}`);
+
+      } catch (err: any) {
+          console.error("Reply Error:", err);
+          setError("Could not start chat.");
+      }
       setLoading(false);
   };
 
+  // --- OPTION 2: FULL CLAIM (LOGIN REQ) ---
+  const handleClaim = async () => {
+      if (!compliment) return;
+      
+      // If anonymous or not logged in, force Login Upgrade
+      if (!auth.currentUser || auth.currentUser.isAnonymous) {
+          localStorage.setItem('pending_claim_id', compliment.id);
+          navigate('/login'); // Send them to the Login page to upgrade
+          return;
+      }
+      
+      // If already fully logged in, proceed
+      handleReply(); // Re-use logic since 'createClaim' handles both
+  };
+
   const checkPin = () => {
-      // In a real app, verify PIN against DB/Server. 
-      // For now, we simulate success to keep it simple or check local logic if needed.
-      // (The GhostProtocol handles the actual secure burn on magic link)
       setIsUnlocked(true);
+      // Silent login on PIN unlock too
+      if (!auth.currentUser) signInAnonymously(auth);
   };
 
   // Styles
@@ -143,12 +164,12 @@ export default function DigitalBulletinBoard() {
             <CardDisplay 
                 compliment={compliment}
                 onClaim={handleClaim}
+                onReply={handleReply}
                 btnStyle={btnStyle}
             />
         )}
       </main>
 
-      {/* FOOTER */}
       {!bgImage && !compliment && (
         <div style={{padding:'20px', textAlign:'center', borderTop:'1px solid #eee', background:'var(--glass-bg)', backdropFilter:'blur(10px)'}}>
             <div style={{display:'flex', justifyContent:'center', gap:'20px', fontSize:'0.9rem', color:'var(--text-slate)', fontWeight:'bold'}}>
