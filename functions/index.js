@@ -1,98 +1,146 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
+const cors = require('cors')({origin: true});
 
 admin.initializeApp();
 const db = admin.firestore();
 
-// Helper to check Admin
-const isAdmin = (email) => {
-    return ['rhys@tvmenuswvc.com', 'rhyshaney@gmail.com'].includes(email);
-};
+// --- PHASE 2: THE BRIDGE (Connection & Claims) ---
 
-/**
- * 1. APPROVE CLAIM (Existing)
- */
-exports.approveClaim = functions.https.onCall(async (data, context) => {
-    if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Login required');
-    
-    const senderUid = context.auth.uid;
-    const complimentId = data.complimentId;
-    
-    // ... (Keep existing logic, simplified here for brevity, assumes previous logic is safe)
-    // We are just appending the new function below.
-    // Ideally, paste the previous approveClaim content here if you want to keep it.
-    // For this update, I will include the NEW function primarily.
-    
-    // RE-INSERTING YOUR PREVIOUS approveClaim LOGIC TO ENSURE NOTHING IS LOST:
-    const compRef = db.collection('compliments').doc(complimentId);
-    const compSnap = await compRef.get();
-    if (!compSnap.exists()) throw new functions.https.HttpsError('not-found', 'Not found');
-    const compData = compSnap.data();
-    if (compData.sender_uid !== senderUid) throw new functions.https.HttpsError('permission-denied', 'Not owner');
-    
-    const batch = db.batch();
-    batch.update(compRef, { status: 'claimed', claimed: true, approved_at: admin.firestore.FieldValue.serverTimestamp() });
-    
-    // Create Connection
-    const connectionRef = db.collection('connections').doc();
-    batch.set(connectionRef, {
-        participants: [senderUid, compData.claimer_uid],
-        last_interaction: admin.firestore.FieldValue.serverTimestamp(),
-        status: 'active',
-        origin_compliment_id: complimentId
+exports.createClaim = functions.https.onCall(async (data, context) => {
+  // 1. Auth Gate
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Must be logged in to claim.');
+  }
+
+  const { complimentId } = data;
+  const claimerUid = context.auth.uid;
+  const claimerName = context.auth.token.name || 'Kind Stranger';
+
+  // 2. Fetch the Card
+  const compRef = db.collection('compliments').doc(complimentId);
+  const compSnap = await compRef.get();
+
+  if (!compSnap.exists) {
+    throw new functions.https.HttpsError('not-found', 'Compliment not found.');
+  }
+  
+  const compData = compSnap.data();
+  const senderUid = compData.sender_uid;
+
+  // 3. The "Many-to-One" Chat Protocol
+  // We create a UNIQUE chat ID for this specific pair: chat_{compliment}_{claimer}
+  const chatId = `chat_${complimentId}_${claimerUid}`;
+  const chatRef = db.collection('chats').doc(chatId);
+
+  // 4. Atomic Update: Create Chat & Mark Pending
+  await db.runTransaction(async (t) => {
+    // A. Fix the "Ghost Chat" - Force BOTH participants immediately
+    t.set(chatRef, {
+      id: chatId,
+      compliment_id: complimentId,
+      participants: [claimerUid, senderUid], // <--- FIXED: Sender is added NOW.
+      participant_names: [claimerName, compData.sender || 'Sender'],
+      last_message: "Claim attempt initiated...",
+      last_updated: admin.firestore.FieldValue.serverTimestamp(),
+      type: 'claim_negotiation'
+    }, { merge: true });
+
+    // B. Create the First System Message (The Knock)
+    const msgRef = chatRef.collection('messages').doc();
+    t.set(msgRef, {
+      text: `${claimerName} scanned your card and is saying hello!`,
+      senderUid: 'SYSTEM',
+      timestamp: admin.firestore.FieldValue.serverTimestamp()
     });
-    
-    await batch.commit();
-    return { success: true };
+
+    // C. Update the Compliment Status
+    // Note: We do NOT overwrite claimer_uid if it's already claimed by someone else,
+    // but for the "Waitress Scenario", we allow multiple chats.
+    // We only lock the claimer_uid in the Public Doc for the UI state.
+    t.update(compRef, {
+      status: 'pending_approval',
+      // We track the *latest* claimer for the UI, but the Chat is the real record.
+      latest_claimer_uid: claimerUid 
+    });
+  });
+
+  return { success: true, chatId: chatId };
 });
 
-/**
- * 2. DEEP SYNC (The New Tool)
- * Pulls ALL users from Auth and stamps them into Firestore.
- */
-exports.syncAuthToFirestore = functions.https.onCall(async (data, context) => {
-    // 1. Security Barrier
-    if (!context.auth || !isAdmin(context.auth.token.email)) {
-        throw new functions.https.HttpsError('permission-denied', 'Super Admin Only');
+
+// --- PHASE 3: THE SETTLEMENT (Approval & Money) ---
+
+exports.approveClaim = functions.https.onCall(async (data, context) => {
+  // 1. Auth Gate
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'Must be logged in to approve.');
+  }
+
+  const { complimentId, claimerUid } = data;
+  const senderUid = context.auth.uid;
+
+  const compRef = db.collection('compliments').doc(complimentId);
+  const secretRef = db.collection('compliment_secrets').where('compliment_id', '==', complimentId).limit(1);
+  
+  await db.runTransaction(async (t) => {
+    const compDoc = await t.get(compRef);
+    if (!compDoc.exists) throw new functions.https.HttpsError('not-found', 'Card not found');
+    
+    // Security Check: Only the Sender can approve
+    if (compDoc.data().sender_uid !== senderUid) {
+      throw new functions.https.HttpsError('permission-denied', 'Only the sender can approve.');
     }
 
-    try {
-        // 2. Fetch the Master List (Up to 1000 users)
-        const listUsersResult = await admin.auth().listUsers(1000);
-        const users = listUsersResult.users;
-        
-        let fixedCount = 0;
-        const batch = db.batch();
+    // 2. Fetch the Secure Ledger (The Value)
+    const secretQuery = await t.get(secretRef);
+    if (secretQuery.empty) throw new functions.https.HttpsError('not-found', 'Ledger record missing.');
+    const secretDoc = secretQuery.docs[0];
+    const tipAmount = secretDoc.data().tip_amount || 0;
 
-        // 3. Iterate and Fix
-        for (const user of users) {
-            const userRef = db.collection('users').doc(user.uid);
-            const secretRef = db.collection('user_secrets').doc(user.uid);
-            
-            // We use set with {merge: true} to avoid overwriting existing data
-            batch.set(userRef, {
-                email: user.email,
-                display_name: user.displayName || 'Unknown',
-                photo_url: user.photoURL || '',
-                // Ensure a blind key exists if missing
-                blind_key: user.uid // Fallback for legacy
-            }, { merge: true });
+    // 3. Move the Money (Escrow Logic)
+    if (tipAmount > 0) {
+      const senderWalletRef = db.collection('wallets').doc(senderUid);
+      const receiverWalletRef = db.collection('wallets').doc(claimerUid);
 
-            batch.set(secretRef, {
-                email: user.email,
-                uid: user.uid,
-                real_name: user.displayName || 'Unknown'
-            }, { merge: true });
+      const senderWallet = await t.get(senderWalletRef);
+      const receiverWallet = await t.get(receiverWalletRef);
 
-            fixedCount++;
-        }
+      if (!senderWallet.exists || senderWallet.data().balance < tipAmount) {
+         throw new functions.https.HttpsError('failed-precondition', 'Insufficient funds in sender wallet.');
+      }
 
-        // 4. Commit
-        await batch.commit();
-        return { message: `Deep Sync Complete. Scanned ${users.length} users. Updated records.` };
+      const newSenderBal = (senderWallet.data().balance || 0) - tipAmount;
+      const newReceiverBal = (receiverWallet.data().balance || 0) + tipAmount;
 
-    } catch (error) {
-        console.error("Deep Sync Error:", error);
-        throw new functions.https.HttpsError('internal', error.message);
+      t.update(senderWalletRef, { balance: newSenderBal });
+      t.update(receiverWalletRef, { balance: newReceiverBal });
+      
+      // Log the Transaction
+      const txRef = db.collection('transactions').doc();
+      t.set(txRef, {
+        type: 'compliment_tip',
+        amount: tipAmount,
+        sender_uid: senderUid,
+        recipient_uid: claimerUid,
+        compliment_id: complimentId,
+        timestamp: admin.firestore.FieldValue.serverTimestamp()
+      });
     }
+
+    // 4. Burn the Card (The Cement Rule)
+    t.update(compRef, {
+      status: 'claimed',
+      claimer_uid: claimerUid, // Final Winner
+      claimed_at: admin.firestore.FieldValue.serverTimestamp()
+    });
+    
+    // 5. Update the Private Ledger
+    t.update(secretDoc.ref, {
+      claimed_by: claimerUid,
+      finalized_at: admin.firestore.FieldValue.serverTimestamp()
+    });
+  });
+
+  return { success: true };
 });

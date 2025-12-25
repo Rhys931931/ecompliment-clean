@@ -1,18 +1,15 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../hooks/useAuth'; // Adjust path if needed
-import { db } from '../../lib/firebase';
+import { db } from '../../services/firebase'; // FIXED PATH
 import { doc, runTransaction, getDoc } from 'firebase/firestore';
 import { GoogleAuthProvider, signInWithPopup, getAuth } from 'firebase/auth';
 
 const Login = () => {
-  const { user } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const generateMasterPin = () => {
-    // Generate a random 5-character alphanumeric PIN
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     let result = '';
     for (let i = 0; i < 5; i++) {
@@ -22,7 +19,6 @@ const Login = () => {
   };
 
   const generateBlindKey = () => {
-    // Generate a secure, semi-permanent blind index key
     return 'u_' + Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
   };
 
@@ -36,7 +32,6 @@ const Login = () => {
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
 
-      // IRON FOUNDATION: Check if user exists, if not, create SECURELY
       const userRef = doc(db, 'users', user.uid);
       const userSnap = await getDoc(userRef);
 
@@ -47,19 +42,17 @@ const Login = () => {
         const walletRef = doc(db, 'wallets', user.uid);
 
         await runTransaction(db, async (transaction) => {
-          // 1. Public Profile (NO PIN)
           transaction.set(userRef, {
             uid: user.uid,
             email: user.email,
             display_name: user.displayName || 'Kind Stranger',
             photo_url: user.photoURL || null,
-            blind_key: blindKey, // Static Blind Index
+            blind_key: blindKey,
             account_type: 'human',
             balance: 0,
             created_at: new Date().toISOString()
           });
 
-          // 2. Secret Vault (PIN GOES HERE)
           transaction.set(userSecretsRef, {
             uid: user.uid,
             master_pin: masterPin,
@@ -67,7 +60,6 @@ const Login = () => {
             updated_at: new Date().toISOString()
           });
 
-          // 3. Wallet Initialization
           const walletSnap = await transaction.get(walletRef);
           if (!walletSnap.exists()) {
             transaction.set(walletRef, {
