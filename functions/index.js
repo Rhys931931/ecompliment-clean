@@ -144,3 +144,4 @@ exports.approveClaim = functions.https.onCall(async (data, context) => {
 
   return { success: true };
 });
+// Force Update
