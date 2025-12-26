@@ -1,4 +1,4 @@
-import { db, auth } from './firebase';
+import { db, auth } from '../config/firebase.prod'; // Correct Import Path
 import { collection, doc, runTransaction, serverTimestamp } from 'firebase/firestore';
 
 export interface GhostComplimentData {
@@ -11,7 +11,7 @@ export interface GhostComplimentData {
   blind_key?: string;
   sender_photo?: string;
   private_note?: string;
-  ad_ids?: string[]; // <--- NEW CARGO
+  ad_ids?: string[];
 }
 
 export const GhostProtocol = {
@@ -61,7 +61,7 @@ export const GhostProtocol = {
             });
         }
 
-        // 5. Write Private Data
+        // 5. Write Private Data (Receipt)
         transaction.set(secretRef, {
             sender_uid: user.uid,
             card_pin: data.card_pin,
@@ -70,13 +70,14 @@ export const GhostProtocol = {
             created_at: serverTimestamp(),
             ip_hash: 'PROTECTED',
             search_code: searchCode,
-            ad_ids: data.ad_ids || [] // Save ads in secret (receipt)
+            ad_ids: data.ad_ids || []
         });
 
-        // 6. Write Public Data
+        // 6. Write Public Data (The Card)
         transaction.set(publicRef, {
             owner_index: blindKey,
             sender: 'Anonymous',
+            sender_uid: user.uid, // <--- THE CRITICAL MISSING LINK!
             recipient_name: data.recipient_name,
             message: data.message,
             timestamp: serverTimestamp(),
@@ -88,7 +89,7 @@ export const GhostProtocol = {
             magic_token: magicToken,
             magic_link: magicLink,
             magic_token_status: 'active',
-            ad_ids: data.ad_ids || [] // Save ads on public card
+            ad_ids: data.ad_ids || []
         });
 
         return { 
@@ -96,13 +97,14 @@ export const GhostProtocol = {
             publicId: publicRef.id,
             searchCode: searchCode,
             magicLink: magicLink,
-            tip_amount: tip
+            tip_amount: tip,
+            pin_backup: data.card_pin
         };
     });
   },
 
   async validateAndBurn(complimentId: string, token: string) {
     console.log("Validating burn for:", complimentId, token);
-    return { success: true };
+    return true; // Simple pass-through for now
   }
 };

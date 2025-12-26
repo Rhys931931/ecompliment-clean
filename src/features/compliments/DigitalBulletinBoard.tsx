@@ -6,8 +6,6 @@ import { signInAnonymously } from 'firebase/auth';
 import { db, auth, functions } from '../../config/firebase.prod';
 import NavBar from '../../components/NavBar';
 import { GhostProtocol } from '../../services/GhostProtocol';
-
-// Import New Components
 import SearchScreen from './components/board/SearchScreen';
 import UnlockScreen from './components/board/UnlockScreen';
 import CardDisplay from './components/board/CardDisplay';
@@ -15,7 +13,6 @@ import CardDisplay from './components/board/CardDisplay';
 export default function DigitalBulletinBoard() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  
   const [searchCode, setSearchCode] = useState('');
   const [pinInput, setPinInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -31,7 +28,6 @@ export default function DigitalBulletinBoard() {
   useEffect(() => {
     const magicToken = searchParams.get('magic');
     if (magicToken) handleMagicLogin(magicToken);
-
     const themeId = searchParams.get('theme');
     if (themeId) loadTheme(themeId);
   }, [searchParams]);
@@ -55,15 +51,11 @@ export default function DigitalBulletinBoard() {
           const snap = await getDocs(q);
           if (!snap.empty) {
               const docData = { id: snap.docs[0].id, ...snap.docs[0].data() } as any;
-              // Validate Token
               const burned = await GhostProtocol.validateAndBurn(docData.id, token);
               if (burned) { 
                   setCompliment(docData); 
                   setIsUnlocked(true); 
-                  // SILENT LOGIN: Give them a Guest ID immediately if they aren't logged in
-                  if (!auth.currentUser) {
-                      await signInAnonymously(auth);
-                  }
+                  if (!auth.currentUser) await signInAnonymously(auth);
               } 
               else { setError("Security Check Failed."); }
           } else { setError("Invalid Magic Link."); }
@@ -85,53 +77,59 @@ export default function DigitalBulletinBoard() {
       setLoading(false);
   };
 
-  // --- OPTION 1: GUEST CHAT (NO LOGIN REQ) ---
+  // --- DEBUG EDITION: REPLY HANDLER (TYPE SAFE) ---
   const handleReply = async () => {
-      if (!compliment) return;
-      setLoading(true);
+      console.log("🔵 [DEBUG] Say Thanks clicked");
+      if (!compliment) { console.error("🔴 [DEBUG] No compliment loaded"); return; }
       
+      setLoading(true);
       try {
-          // Ensure we have at least an Anonymous User
           if (!auth.currentUser) {
-              await signInAnonymously(auth);
+              console.log("🔵 [DEBUG] Logging in anonymously...");
+              // FIX: Use returned credential instead of relying on global auth state update
+              const cred = await signInAnonymously(auth);
+              console.log("✅ [DEBUG] Signed in as:", cred.user.uid);
+          } else {
+              console.log("🔵 [DEBUG] Already signed in:", auth.currentUser.uid);
           }
 
-          // Use the Cloud Function to create the chat
-          // Because we are anonymous, it will create chat_{compliment}_{anonID}
+          console.log("🔵 [DEBUG] Calling Cloud Function 'createClaim'...");
           const createClaimFn = httpsCallable(functions, 'createClaim');
           const result: any = await createClaimFn({ complimentId: compliment.id });
           
-          navigate(`/chat/${result.data.chatId}`);
+          console.log("✅ [DEBUG] Function Success!", result);
+          if (result.data && result.data.chatId) {
+              console.log("✅ [DEBUG] Moving to chat:", result.data.chatId);
+              navigate(`/chat/${result.data.chatId}`);
+          } else {
+              console.error("🔴 [DEBUG] Function returned no chatId:", result);
+              setError("Server Error: No Chat ID returned.");
+          }
 
       } catch (err: any) {
-          console.error("Reply Error:", err);
-          setError("Could not start chat.");
+          console.error("🔴 [DEBUG] FATAL ERROR:", err);
+          console.error("🔴 [DEBUG] Code:", err.code);
+          console.error("🔴 [DEBUG] Message:", err.message);
+          setError(`Error: ${err.message}`);
       }
       setLoading(false);
   };
 
-  // --- OPTION 2: FULL CLAIM (LOGIN REQ) ---
   const handleClaim = async () => {
       if (!compliment) return;
-      
-      // If anonymous or not logged in, force Login Upgrade
       if (!auth.currentUser || auth.currentUser.isAnonymous) {
           localStorage.setItem('pending_claim_id', compliment.id);
-          navigate('/login'); // Send them to the Login page to upgrade
+          navigate('/login');
           return;
       }
-      
-      // If already fully logged in, proceed
-      handleReply(); // Re-use logic since 'createClaim' handles both
+      handleReply(); 
   };
 
   const checkPin = () => {
       setIsUnlocked(true);
-      // Silent login on PIN unlock too
       if (!auth.currentUser) signInAnonymously(auth);
   };
 
-  // Styles
   const containerStyle = bgImage ? { backgroundImage: `url(${bgImage})` } : {};
   const navStyle = bgImage ? { background: themeColor, color: themeText } : {};
   const btnStyle = { background: themeColor, color: themeText };
@@ -139,7 +137,6 @@ export default function DigitalBulletinBoard() {
   return (
     <div className="app-container" style={containerStyle}>
       <NavBar user={auth.currentUser} style={navStyle} />
-      
       <main className="content-area">
         {!compliment ? (
             <SearchScreen 
@@ -169,6 +166,11 @@ export default function DigitalBulletinBoard() {
             />
         )}
       </main>
+      
+      {/* ERROR DEBUG BOX */}
+      {error && <div style={{position:'fixed', bottom:0, left:0, right:0, background:'red', color:'white', padding:'10px', fontSize:'0.8rem', zIndex:9999}}>
+          {error}
+      </div>}
 
       {!bgImage && !compliment && (
         <div style={{padding:'20px', textAlign:'center', borderTop:'1px solid #eee', background:'var(--glass-bg)', backdropFilter:'blur(10px)'}}>
