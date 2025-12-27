@@ -1,91 +1,45 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // --- HELPER FUNCTIONS ---
     function isSignedIn() { return request.auth != null; }
     function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
-    
-    // LAW #17: THE GOD MODE WHITELIST
-    function isAdmin() {
-      return isSignedIn() && (
-        request.auth.token.email == 'rhys@tvmenuswvc.com' || 
-        request.auth.token.email == 'rhyshaney@gmail.com'
-      );
-    }
+    // 1. Define who is an Admin
+    function isAdmin() { return isSignedIn() && (request.auth.token.email == 'rhys@tvmenuswvc.com' || request.auth.token.email == 'rhyshaney@gmail.com'); }
 
-    // --- USER DATA ---
-    match /users/{userId} {
-      allow read, write: if isOwner(userId) || isAdmin();
-    }
-    
-    match /user_secrets/{userId} {
-      allow read, write: if isOwner(userId) || isAdmin();
-    }
-
-    // --- WALLETS (THE BANK) ---
-    match /wallets/{userId} {
+    match /users/{userId} { allow read, write: if isOwner(userId) || isAdmin(); }
+    match /user_secrets/{userId} { allow read, write: if isOwner(userId) || isAdmin(); }
+    match /wallets/{userId} { 
       allow read: if isOwner(userId) || isAdmin();
-      // FIX 1: Allow users to create their own empty wallet
       allow create: if isOwner(userId) && request.resource.data.balance == 0;
       allow update: if isAdmin();
     }
-
-    // --- PUBLIC PROFILES ---
-    match /public_profiles/{profileId} {
-      allow read: if true;
-      allow write: if isSignedIn();
-    }
-
-    // --- COMPLIMENTS ---
+    match /public_profiles/{profileId} { allow read: if true; allow write: if isSignedIn(); }
+    
     match /compliments/{complimentId} {
-      allow read: if true;
-      // FIX 2: ALLOW CREATION (Required for ComposerForm.tsx)
-      allow create: if isSignedIn();
+      // 2. THE FIX: Allow public read of one doc, OR admin read of the whole list.
+      allow read: if true || isAdmin();
       
-      allow update: if isSignedIn() && (
-        resource.data.sender_uid == request.auth.uid || 
-        resource.data.recipient_uid == request.auth.uid || 
-        request.resource.data.claimer_uid == request.auth.uid ||
-        request.resource.data.status == 'pending_approval'
-      );
-      allow delete: if isSignedIn() && resource.data.sender_uid == request.auth.uid || isAdmin();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && (resource.data.sender_uid == request.auth.uid || resource.data.recipient_uid == request.auth.uid || request.resource.data.claimer_uid == request.auth.uid || request.resource.data.status == 'pending_approval' || request.resource.data.sender_uid != null);
+      // 3. Ensure Admins can delete
+      allow delete: if isOwner(resource.data.sender_uid) || isAdmin();
     }
-
+    
     match /compliment_secrets/{secretId} {
-      // FIX 3: ALLOW CREATION (Required for ComposerForm.tsx)
       allow create: if isSignedIn();
-      
-      allow read, write: if isSignedIn() && (
-        resource.data.sender_uid == request.auth.uid ||
-        request.resource.data.sender_uid == request.auth.uid
-      );
+      // 4. Ensure Admins can read/delete secrets too (for cleanup)
+      allow read, write: if (isSignedIn() && (resource.data.sender_uid == request.auth.uid || request.resource.data.sender_uid == request.auth.uid)) || isAdmin();
     }
-
-    // --- MESSAGING ---
     match /chats/{chatId} {
-      allow read, write: if isSignedIn() && (
-        request.auth.uid in resource.data.participants ||
-        request.auth.uid in request.resource.data.participants
-      );
-      match /messages/{messageId} {
-        allow read, write: if isSignedIn();
-      }
+      allow read, write: if isSignedIn() && (request.auth.uid in resource.data.participants || request.auth.uid in request.resource.data.participants);
+      match /messages/{messageId} { allow read, write: if isSignedIn(); }
     }
-
-    // --- ASSETS & COMMERCE ---
-    match /themes/{themeId} {
-      allow read: if true;
-      allow write: if isAdmin();
-    }
-    match /ads/{adId} {
-      allow read: if true;
-      allow create: if isSignedIn();
-      allow update, delete: if (resource.data.owner_email == request.auth.token.email) || isAdmin();
-    }
+    match /themes/{themeId} { allow read: if true; allow write: if isAdmin(); }
+    match /ads/{adId} { allow read: if true; allow create: if isSignedIn(); allow update, delete: if (resource.data.owner_email == request.auth.token.email) || isAdmin(); }
+    
     match /transactions/{txnId} {
-      allow read: if isOwner(resource.data.uid);
-      allow create: if false; 
+      allow read: if isOwner(resource.data.uid) || isAdmin();
+      allow create: if isOwner(request.resource.data.uid);
     }
     match /orders/{orderId} {
       allow read: if isOwner(resource.data.uid) || isAdmin();
