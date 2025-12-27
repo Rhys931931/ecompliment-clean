@@ -4,6 +4,7 @@ const admin = require("firebase-admin");
 admin.initializeApp();
 const db = admin.firestore();
 
+// 1. SEND COMPLIMENT
 exports.sendCompliment = functions.https.onCall(async (data, context) => {
     if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Login required');
     const uid = context.auth.uid;
@@ -36,6 +37,7 @@ exports.sendCompliment = functions.https.onCall(async (data, context) => {
     });
 });
 
+// 2. CREATE CHAT
 exports.createClaim = functions.https.onCall(async (data, context) => {
     try {
         if (!context.auth) throw new Error('User must be guest or logged in.');
@@ -49,6 +51,7 @@ exports.createClaim = functions.https.onCall(async (data, context) => {
         const compData = compSnap.data();
         let senderUid = compData.sender_uid;
 
+        // Self-Healing
         if (!senderUid) {
              let secretQuery = await db.collection('compliment_secrets').where('search_code', '==', String(compData.search_code)).limit(1).get();
              if (secretQuery.empty) secretQuery = await db.collection('compliment_secrets').where('search_code', '==', Number(compData.search_code)).limit(1).get();
@@ -81,39 +84,36 @@ exports.createClaim = functions.https.onCall(async (data, context) => {
     }
 });
 
+// 3. APPROVE CLAIM (The Battle Royale Judge - TOGGLE PROTOCOL)
 exports.approveClaim = functions.https.onCall(async (data, context) => {
     if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Login required');
     
-    const { requestId, complimentId } = data;
+    const { requestId } = data;
     const senderUid = context.auth.uid;
 
     try {
-        let targetUid, compId, tipAmount;
+        // A. Verify Request
+        const reqRef = db.collection('claim_requests').doc(requestId);
+        const reqSnap = await reqRef.get();
+        if (!reqSnap.exists) throw new Error("Request not found");
         
-        if (requestId) {
-            const reqRef = db.collection('claim_requests').doc(requestId);
-            const reqSnap = await reqRef.get();
-            if (!reqSnap.exists) throw new Error("Request not found");
-            
-            const reqData = reqSnap.data();
-            if (reqData.sender_uid !== senderUid) throw new Error("Not your compliment");
-            
-            targetUid = reqData.requester_uid;
-            compId = reqData.compliment_id;
-            
-            await reqRef.update({ status: 'approved', approved_at: admin.firestore.FieldValue.serverTimestamp() });
-        } else {
-            throw new Error("Must provide requestId");
-        }
+        const reqData = reqSnap.data();
+        if (reqData.sender_uid !== senderUid) throw new Error("Not your compliment");
+        
+        const targetUid = reqData.requester_uid;
+        const compId = reqData.compliment_id;
+        
+        await reqRef.update({ status: 'approved', approved_at: admin.firestore.FieldValue.serverTimestamp() });
 
+        // B. Process Win
         const compRef = db.collection('compliments').doc(compId);
         const compSnap = await compRef.get();
         const compData = compSnap.data();
-        tipAmount = compData.tip_amount || 0;
+        const tipAmount = compData.tip_amount || 0;
 
         const batch = db.batch();
 
-        // 1. UPDATE PUBLIC CARD (Toggle Protocol: NO DELETION)
+        // 1. UPDATE PUBLIC CARD (Toggle Only - NO DELETE)
         batch.update(compRef, { 
             status: 'claimed', 
             claimed: true, 
@@ -137,7 +137,7 @@ exports.approveClaim = functions.https.onCall(async (data, context) => {
             });
         }
 
-        // 3. DENY LOSERS
+        // 3. DENY LOSERS (Battle Royale)
         const otherReqs = await db.collection('claim_requests')
             .where('compliment_id', '==', compId)
             .where('status', '==', 'pending')
@@ -147,10 +147,11 @@ exports.approveClaim = functions.https.onCall(async (data, context) => {
             if (doc.id !== requestId) {
                 batch.update(doc.ref, { status: 'denied' });
                 
+                // NOTIFY LOSERS IN CHAT
                 const chatId = `chat_${compId}_${doc.data().requester_uid}`;
                 const msgRef = db.collection('chats').doc(chatId).collection('messages').doc();
                 batch.set(msgRef, {
-                    text: "🔒 This compliment was claimed by someone else.",
+                    text: "🔒 This compliment has been claimed by someone else.",
                     senderUid: "SYSTEM",
                     senderName: "eCompliment",
                     timestamp: admin.firestore.FieldValue.serverTimestamp(),

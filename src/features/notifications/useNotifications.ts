@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { db, auth, functions } from '../../config/firebase.prod';
-import { collection, query, where, onSnapshot, doc, getDoc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 
 export interface NotificationItem {
@@ -28,51 +28,42 @@ export const useNotifications = () => {
       const user = auth.currentUser;
       if (!user) { setLoading(false); return; }
 
-      try {
-        const userHubRef = doc(db, 'users', user.uid);
-        const userHubSnap = await getDoc(userHubRef);
-        if (!userHubSnap.exists()) return;
+      // NEW: Listen to claim_requests instead of compliments
+      const q = query(
+        collection(db, 'claim_requests'),
+        where('sender_uid', '==', user.uid),
+        where('status', '==', 'pending')
+      );
 
-        const blindKey = userHubSnap.data().blind_key;
-        if (!blindKey) return;
-
-        const q = query(
-          collection(db, 'compliments'),
-          where('owner_index', '==', blindKey),
-          where('status', '==', 'pending_approval')
-        );
-
-        unsubscribe = onSnapshot(q, (snapshot) => {
-          const items: NotificationItem[] = snapshot.docs.map(d => {
-            const data = d.data();
-            return {
-              id: d.id,
-              type: 'claim_request',
-              message: 'Claim Request',
-              timestamp: data.timestamp,
-              data: data,
-              title: "Claim Request",
-              preview: `${data.claimer_name || 'Someone'} wants to claim your card!`,
-              iconType: 'request', 
-              color: '#f59e0b',
-              isActionItem: true
-            };
-          });
-          setNotifications(items);
-          setLoading(false);
+      unsubscribe = onSnapshot(q, (snapshot) => {
+        const items: NotificationItem[] = snapshot.docs.map(d => {
+          const data = d.data();
+          return {
+            id: d.id, // Request ID
+            type: 'claim_request',
+            message: 'Claim Request',
+            timestamp: data.timestamp,
+            data: data,
+            title: "Claim Request",
+            preview: `${data.requester_name || 'Someone'} wants to claim your card!`,
+            iconType: 'request', 
+            color: '#f59e0b',
+            isActionItem: true
+          };
         });
-      } catch (err) { console.error(err); setLoading(false); }
+        setNotifications(items);
+        setLoading(false);
+      });
     };
     setupListener();
     return () => { if (unsubscribe) unsubscribe(); };
   }, []);
 
-  const handleApprove = async (notificationId: string) => {
-    setProcessingId(notificationId);
+  const handleApprove = async (requestId: string) => {
+    setProcessingId(requestId);
     try {
-      // CALL THE SERVER FUNCTION (SECURE)
       const approveFn = httpsCallable(functions, 'approveClaim');
-      await approveFn({ complimentId: notificationId });
+      await approveFn({ requestId: requestId });
       
       alert("Approved! Coins transferred.");
 
@@ -84,11 +75,11 @@ export const useNotifications = () => {
     }
   };
 
-  const handleDeny = async (notificationId: string) => {
-    setProcessingId(notificationId);
+  const handleDeny = async (requestId: string) => {
+    setProcessingId(requestId);
     try {
-      const compRef = doc(db, 'compliments', notificationId);
-      await updateDoc(compRef, { status: 'denied' }); // Soft deny
+      const reqRef = doc(db, 'claim_requests', requestId);
+      await updateDoc(reqRef, { status: 'denied' });
     } catch (err) { console.error(err); } 
     finally { setProcessingId(null); }
   };
