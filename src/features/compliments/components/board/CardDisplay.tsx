@@ -1,13 +1,14 @@
-import { Unlock, Coins, CheckCircle, Gift, MessageCircle } from 'lucide-react';
+import { Unlock, Coins, CheckCircle, Gift, MessageCircle, Loader } from 'lucide-react';
 
 interface Props {
   compliment: any;
   onClaim: () => void;
   onReply: () => void;
   btnStyle: React.CSSProperties;
+  loading?: boolean; // <--- NEW PROP (Received from Brain)
 }
 
-export default function CardDisplay({ compliment, onClaim, onReply, btnStyle }: Props) {
+export default function CardDisplay({ compliment, onClaim, onReply, btnStyle, loading }: Props) {
   return (
     <div className="glass-card slide-up">
         <div style={{width:'80px', height:'80px', background:'#dcfce7', borderRadius:'50%', margin:'0 auto 20px auto', display:'flex', alignItems:'center', justifyContent:'center'}}>
@@ -24,8 +25,13 @@ export default function CardDisplay({ compliment, onClaim, onReply, btnStyle }: 
         
         <div style={{display:'flex', flexDirection:'column', gap:'12px'}}>
             {/* OPTION 1: CHAT (Guest Friendly) */}
-            <button onClick={onReply} className="claim-btn" style={{width:'100%', justifyContent:'center', background:'white', color:'#333', border:'1px solid #ddd'}}>
-                <MessageCircle size={20}/> Say Thanks
+            <button 
+                onClick={onReply} 
+                disabled={loading}
+                className="claim-btn" 
+                style={{width:'100%', justifyContent:'center', background:'white', color:'#333', border:'1px solid #ddd'}}
+            >
+                {loading ? <Loader className="spin" size={20}/> : <><MessageCircle size={20}/> Say Thanks</>}
             </button>
 
             {/* OPTION 2: MONEY (Login Required) */}

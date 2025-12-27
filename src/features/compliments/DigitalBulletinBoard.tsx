@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore'; 
 import { httpsCallable } from 'firebase/functions';
-import { signInAnonymously } from 'firebase/auth';
+import { signInAnonymously, updateProfile } from 'firebase/auth'; 
 import { db, auth, functions } from '../../config/firebase.prod';
 import NavBar from '../../components/NavBar';
 import { GhostProtocol } from '../../services/GhostProtocol';
@@ -55,6 +55,7 @@ export default function DigitalBulletinBoard() {
               if (burned) { 
                   setCompliment(docData); 
                   setIsUnlocked(true); 
+                  // Pre-warm auth silently for guests
                   if (!auth.currentUser) await signInAnonymously(auth);
               } 
               else { setError("Security Check Failed."); }
@@ -77,46 +78,53 @@ export default function DigitalBulletinBoard() {
       setLoading(false);
   };
 
-  // --- DEBUG EDITION: REPLY HANDLER (TYPE SAFE) ---
+  // --- THE BRAIN: GUEST HANDLING LOGIC ---
   const handleReply = async () => {
-      console.log("🔵 [DEBUG] Say Thanks clicked");
-      if (!compliment) { console.error("🔴 [DEBUG] No compliment loaded"); return; }
-      
+      if (!compliment) return;
       setLoading(true);
+      
       try {
-          if (!auth.currentUser) {
-              console.log("🔵 [DEBUG] Logging in anonymously...");
-              // FIX: Use returned credential instead of relying on global auth state update
-              const cred = await signInAnonymously(auth);
-              console.log("✅ [DEBUG] Signed in as:", cred.user.uid);
-          } else {
-              console.log("🔵 [DEBUG] Already signed in:", auth.currentUser.uid);
+          // 1. VISITOR IDENTIFICATION (Local)
+          let visitorName = localStorage.getItem('ecomp_visitor_name');
+          if (!visitorName) {
+              visitorName = `Guest ${Math.floor(1000 + Math.random() * 9000)}`;
+              localStorage.setItem('ecomp_visitor_name', visitorName);
           }
 
-          console.log("🔵 [DEBUG] Calling Cloud Function 'createClaim'...");
+          // 2. AUTHENTICATION (Firebase)
+          if (!auth.currentUser) {
+              console.log("🔵 [GUEST] Signing in anonymously...");
+              const cred = await signInAnonymously(auth);
+              
+              // Stamp the Guest Name onto the Auth Profile
+              await updateProfile(cred.user, { displayName: visitorName });
+              console.log(`✅ [GUEST] Signed in as ${visitorName} (${cred.user.uid})`);
+          } else {
+              console.log("🔵 [AUTH] Already signed in:", auth.currentUser.uid);
+          }
+
+          // 3. SERVER EXECUTION (Cloud Functions)
+          console.log("🔵 [SERVER] Requesting chat room...");
           const createClaimFn = httpsCallable(functions, 'createClaim');
           const result: any = await createClaimFn({ complimentId: compliment.id });
           
-          console.log("✅ [DEBUG] Function Success!", result);
           if (result.data && result.data.chatId) {
-              console.log("✅ [DEBUG] Moving to chat:", result.data.chatId);
+              console.log("✅ [SUCCESS] Entering chat:", result.data.chatId);
               navigate(`/chat/${result.data.chatId}`);
           } else {
-              console.error("🔴 [DEBUG] Function returned no chatId:", result);
-              setError("Server Error: No Chat ID returned.");
+              throw new Error("Server did not return a Chat ID.");
           }
 
       } catch (err: any) {
-          console.error("🔴 [DEBUG] FATAL ERROR:", err);
-          console.error("🔴 [DEBUG] Code:", err.code);
-          console.error("🔴 [DEBUG] Message:", err.message);
-          setError(`Error: ${err.message}`);
+          console.error("🔴 [ERROR]", err);
+          setError(`Error: ${err.message || 'Could not start chat'}`);
       }
       setLoading(false);
   };
 
   const handleClaim = async () => {
       if (!compliment) return;
+      // Money Claims require Full Login (Different Flow)
       if (!auth.currentUser || auth.currentUser.isAnonymous) {
           localStorage.setItem('pending_claim_id', compliment.id);
           navigate('/login');
@@ -163,12 +171,12 @@ export default function DigitalBulletinBoard() {
                 onClaim={handleClaim}
                 onReply={handleReply}
                 btnStyle={btnStyle}
+                loading={loading} // <--- Passing State to Component
             />
         )}
       </main>
       
-      {/* ERROR DEBUG BOX */}
-      {error && <div style={{position:'fixed', bottom:0, left:0, right:0, background:'red', color:'white', padding:'10px', fontSize:'0.8rem', zIndex:9999}}>
+      {error && <div style={{position:'fixed', bottom:0, left:0, right:0, background:'#b91c1c', color:'white', padding:'15px', fontSize:'0.9rem', zIndex:9999, textAlign:'center', fontWeight:'bold'}}>
           {error}
       </div>}
 
