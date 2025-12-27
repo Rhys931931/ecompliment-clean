@@ -8,6 +8,7 @@ import ChatHeader from './components/ChatHeader';
 import MessageList from './components/MessageList';
 import ChatInput from './components/ChatInput';
 import { useNotificationPermission } from '../notifications/hooks/useNotificationPermission';
+import { useClaimSystem } from '../commerce/hooks/useClaimSystem';
 
 export default function ChatRoom() {
   const { complimentId } = useParams();
@@ -20,22 +21,28 @@ export default function ChatRoom() {
 
   // Hook for the Bell
   const { permission, requestPermission, loading: notifyLoading } = useNotificationPermission(user);
+  
+  // Hook for the Claim Button - THE BRAIN
+  const { submitClaimRequest, claiming, hasRequested, checkStatus } = useClaimSystem(user, complimentId, complimentData);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
         setUser(currentUser);
         if (complimentId) {
-             // 1. Listen to Chat Room
              const unsubRoom = onSnapshot(doc(db, "chats", complimentId), async (docSnap) => {
                  if (docSnap.exists()) {
                      const data = docSnap.data();
                      setRoomDetails({ id: docSnap.id, ...data });
                      
-                     // 2. Fetch Origin Compliment (for Claim Status)
                      if (data.compliment_id) {
                          const compSnap = await getDoc(doc(db, "compliments", data.compliment_id));
-                         if (compSnap.exists()) setComplimentData(compSnap.data());
+                         if (compSnap.exists()) {
+                             const cData = compSnap.data();
+                             setComplimentData(cData);
+                             // console.log("ChatRoom: Loaded Compliment Data", cData);
+                             checkStatus();
+                         }
                      }
                  }
              });
@@ -72,11 +79,15 @@ export default function ChatRoom() {
     } catch (err) { console.error("Error sending:", err); }
   };
 
-  const handleClaim = () => {
-      alert("Claim flow starting... (Feature coming in Phase 3)"); 
-  };
-
   if (loading) return <div className="app-container" style={{display:'flex', justifyContent:'center', alignItems:'center'}}>Loading Chat...</div>;
+
+  // VISIBILITY LOGIC
+  const isSender = user?.uid === complimentData?.sender_uid;
+  const isClaimed = complimentData?.claimed;
+  const showClaim = complimentData && !isClaimed && !isSender && !hasRequested;
+
+  // Debug Log for Button Visibility
+  // console.log("ChatRoom: Button Logic", { isSender, isClaimed, hasRequested, showClaim });
 
   return (
     <div className="app-container" style={{background:'#fff', height:'100dvh', display:'flex', flexDirection:'column', padding:0}}>
@@ -84,11 +95,14 @@ export default function ChatRoom() {
       <ChatHeader 
           title={roomDetails?.compliment_title || 'Chat'} 
           isGuest={roomDetails?.is_guest_chat}
-          canClaim={complimentData && !complimentData.claimed && user?.uid !== complimentData.sender_uid}
-          onClaim={handleClaim}
+          canClaim={showClaim}
+          onClaim={() => {
+              console.log("ChatRoom: Claim Button Clicked!");
+              submitClaimRequest();
+          }}
           notificationPermission={permission}
           onRequestNotify={requestPermission}
-          notifyLoading={notifyLoading}
+          notifyLoading={notifyLoading || claiming}
       />
       
       <MessageList messages={messages} currentUserId={user?.uid} />
