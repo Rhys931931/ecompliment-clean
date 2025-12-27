@@ -9,6 +9,7 @@ import { GhostProtocol } from '../../services/GhostProtocol';
 import SearchScreen from './components/board/SearchScreen';
 import UnlockScreen from './components/board/UnlockScreen';
 import CardDisplay from './components/board/CardDisplay';
+import SelectionScreen from './components/board/SelectionScreen';
 
 export default function DigitalBulletinBoard() {
   const [searchParams] = useSearchParams();
@@ -17,7 +18,10 @@ export default function DigitalBulletinBoard() {
   const [pinInput, setPinInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  
+  // MATCHING STATE
   const [compliment, setCompliment] = useState<any>(null);
+  const [candidates, setCandidates] = useState<any[]>([]); // <--- NEW: For collisions
   const [isUnlocked, setIsUnlocked] = useState(false);
   
   // Theme State
@@ -51,11 +55,17 @@ export default function DigitalBulletinBoard() {
           const snap = await getDocs(q);
           if (!snap.empty) {
               const docData = { id: snap.docs[0].id, ...snap.docs[0].data() } as any;
+              
+              if (docData.claimed) {
+                  setError("This gift has already been claimed.");
+                  setLoading(false);
+                  return;
+              }
+
               const burned = await GhostProtocol.validateAndBurn(docData.id, token);
               if (burned) { 
                   setCompliment(docData); 
                   setIsUnlocked(true); 
-                  // Pre-warm auth silently for guests
                   if (!auth.currentUser) await signInAnonymously(auth);
               } 
               else { setError("Security Check Failed."); }
@@ -67,64 +77,64 @@ export default function DigitalBulletinBoard() {
   const handleSearch = async (e: React.FormEvent) => {
       e.preventDefault();
       if (searchCode.length < 8) { setError("Code must be 8 digits."); return; }
-      setLoading(true); setError(''); setCompliment(null); setIsUnlocked(false);
+      setLoading(true); setError(''); setCompliment(null); setCandidates([]); setIsUnlocked(false);
+      
       try {
+          // 1. GET ALL MATCHES (Not just the first one)
           const q = query(collection(db, "compliments"), where("search_code", "==", searchCode));
           const snap = await getDocs(q);
-          if (!snap.empty) {
-              setCompliment({ id: snap.docs[0].id, ...snap.docs[0].data() });
-          } else { setError("Card not found. Check the code."); }
+          
+          // 2. PARSE & FILTER (The Toggle Protocol)
+          const allMatches = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          const activeMatches = allMatches.filter((c: any) => !c.claimed);
+
+          // 3. DECISION LOGIC
+          if (activeMatches.length === 0) {
+              if (allMatches.length > 0) setError("This card has already been claimed.");
+              else setError("Card not found. Check the code.");
+          } 
+          else if (activeMatches.length === 1) {
+              // Perfect Match
+              setCompliment(activeMatches[0]);
+          } 
+          else {
+              // COLLISION DETECTED (One in a Million)
+              setCandidates(activeMatches);
+          }
+
       } catch (err) { console.error(err); setError("Search failed."); }
       setLoading(false);
   };
 
-  // --- THE BRAIN: GUEST HANDLING LOGIC ---
+  // --- ACTIONS ---
   const handleReply = async () => {
       if (!compliment) return;
       setLoading(true);
-      
       try {
-          // 1. VISITOR IDENTIFICATION (Local)
           let visitorName = localStorage.getItem('ecomp_visitor_name');
           if (!visitorName) {
               visitorName = `Guest ${Math.floor(1000 + Math.random() * 9000)}`;
               localStorage.setItem('ecomp_visitor_name', visitorName);
           }
 
-          // 2. AUTHENTICATION (Firebase)
           if (!auth.currentUser) {
-              console.log("🔵 [GUEST] Signing in anonymously...");
               const cred = await signInAnonymously(auth);
-              
-              // Stamp the Guest Name onto the Auth Profile
               await updateProfile(cred.user, { displayName: visitorName });
-              console.log(`✅ [GUEST] Signed in as ${visitorName} (${cred.user.uid})`);
-          } else {
-              console.log("🔵 [AUTH] Already signed in:", auth.currentUser.uid);
           }
 
-          // 3. SERVER EXECUTION (Cloud Functions)
-          console.log("🔵 [SERVER] Requesting chat room...");
           const createClaimFn = httpsCallable(functions, 'createClaim');
           const result: any = await createClaimFn({ complimentId: compliment.id });
           
           if (result.data && result.data.chatId) {
-              console.log("✅ [SUCCESS] Entering chat:", result.data.chatId);
               navigate(`/chat/${result.data.chatId}`);
-          } else {
-              throw new Error("Server did not return a Chat ID.");
-          }
+          } else { throw new Error("Server did not return a Chat ID."); }
 
-      } catch (err: any) {
-          console.error("🔴 [ERROR]", err);
-          setError(`Error: ${err.message || 'Could not start chat'}`);
-      }
+      } catch (err: any) { setError(`Error: ${err.message || 'Could not start chat'}`); }
       setLoading(false);
   };
 
   const handleClaim = async () => {
       if (!compliment) return;
-      // Money Claims require Full Login (Different Flow)
       if (!auth.currentUser || auth.currentUser.isAnonymous) {
           localStorage.setItem('pending_claim_id', compliment.id);
           navigate('/login');
@@ -138,6 +148,7 @@ export default function DigitalBulletinBoard() {
       if (!auth.currentUser) signInAnonymously(auth);
   };
 
+  // --- RENDER ---
   const containerStyle = bgImage ? { backgroundImage: `url(${bgImage})` } : {};
   const navStyle = bgImage ? { background: themeColor, color: themeText } : {};
   const btnStyle = { background: themeColor, color: themeText };
@@ -146,7 +157,15 @@ export default function DigitalBulletinBoard() {
     <div className="app-container" style={containerStyle}>
       <NavBar user={auth.currentUser} style={navStyle} />
       <main className="content-area">
-        {!compliment ? (
+        
+        {/* STATE MACHINE: Candidates -> Search -> Unlock -> Display */}
+        {candidates.length > 0 ? (
+            <SelectionScreen 
+                candidates={candidates}
+                onSelect={(selected) => { setCompliment(selected); setCandidates([]); }}
+                onCancel={() => { setCandidates([]); setSearchCode(''); }}
+            />
+        ) : !compliment ? (
             <SearchScreen 
                 searchCode={searchCode}
                 setSearchCode={setSearchCode}
@@ -171,7 +190,7 @@ export default function DigitalBulletinBoard() {
                 onClaim={handleClaim}
                 onReply={handleReply}
                 btnStyle={btnStyle}
-                loading={loading} // <--- Passing State to Component
+                loading={loading}
             />
         )}
       </main>
@@ -180,7 +199,7 @@ export default function DigitalBulletinBoard() {
           {error}
       </div>}
 
-      {!bgImage && !compliment && (
+      {!bgImage && !compliment && candidates.length === 0 && (
         <div style={{padding:'20px', textAlign:'center', borderTop:'1px solid #eee', background:'var(--glass-bg)', backdropFilter:'blur(10px)'}}>
             <div style={{display:'flex', justifyContent:'center', gap:'20px', fontSize:'0.9rem', color:'var(--text-slate)', fontWeight:'bold'}}>
                 <span onClick={()=>navigate('/business-intro')} style={{cursor:'pointer'}}>For Business</span>

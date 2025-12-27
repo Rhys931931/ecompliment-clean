@@ -4,10 +4,8 @@ const admin = require("firebase-admin");
 admin.initializeApp();
 const db = admin.firestore();
 
-// 1. SEND COMPLIMENT (Standard)
 exports.sendCompliment = functions.https.onCall(async (data, context) => {
     if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Login required');
-    
     const uid = context.auth.uid;
     const { recipient_name, message, tip_amount, card_pin, private_note, blind_key, ad_ids } = data;
     const tip = parseInt(tip_amount || 0);
@@ -20,7 +18,6 @@ exports.sendCompliment = functions.https.onCall(async (data, context) => {
     return db.runTransaction(async (t) => {
         const walletDoc = await t.get(walletRef);
         const currentBalance = walletDoc.exists ? (walletDoc.data().balance || 0) : 0;
-
         if (tip > 0 && currentBalance < tip) throw new functions.https.HttpsError('failed-precondition', 'Insufficient funds');
 
         const searchCode = Math.floor(10000000 + Math.random() * 90000000).toString();
@@ -39,17 +36,12 @@ exports.sendCompliment = functions.https.onCall(async (data, context) => {
     });
 });
 
-// 2. CREATE CLAIM (The Safety Net Version)
 exports.createClaim = functions.https.onCall(async (data, context) => {
-    console.log("🚀 [START] createClaim");
-    
     try {
-        // A. Auth Check
         if (!context.auth) throw new Error('User must be guest or logged in.');
         const uid = context.auth.uid;
         const { complimentId } = data;
 
-        // B. Fetch Data
         const compRef = db.collection('compliments').doc(complimentId);
         const compSnap = await compRef.get();
         if (!compSnap.exists) throw new Error('Compliment not found.');
@@ -57,29 +49,18 @@ exports.createClaim = functions.https.onCall(async (data, context) => {
         const compData = compSnap.data();
         let senderUid = compData.sender_uid;
 
-        // C. Self-Healing (Aggressive)
         if (!senderUid) {
-             console.log("⚠️ Sender missing. Searching vault for code:", compData.search_code);
-             
-             // Try String Code
              let secretQuery = await db.collection('compliment_secrets').where('search_code', '==', String(compData.search_code)).limit(1).get();
-             
-             // Try Number Code (Fallback)
-             if (secretQuery.empty) {
-                 secretQuery = await db.collection('compliment_secrets').where('search_code', '==', Number(compData.search_code)).limit(1).get();
-             }
+             if (secretQuery.empty) secretQuery = await db.collection('compliment_secrets').where('search_code', '==', Number(compData.search_code)).limit(1).get();
 
              if (!secretQuery.empty) {
                  senderUid = secretQuery.docs[0].data().sender_uid;
-                 await compRef.update({ sender_uid: senderUid }); // Save the fix
-                 console.log("✅ Fixed! Sender found:", senderUid);
+                 await compRef.update({ sender_uid: senderUid }); 
              } else {
-                 console.error("❌ CRITICAL: Sender not found in vault.");
                  throw new Error('Card has no owner. Cannot start chat.');
              }
         }
 
-        // D. Create Chat
         const chatId = `chat_${complimentId}_${uid}`;
         const chatRef = db.collection('chats').doc(chatId);
 
@@ -96,32 +77,97 @@ exports.createClaim = functions.https.onCall(async (data, context) => {
         return { chatId };
 
     } catch (error) {
-        // CATCH THE CRASH
-        console.error("🔥 FATAL SERVER ERROR:", error);
         throw new functions.https.HttpsError('internal', error.message);
     }
 });
 
 exports.approveClaim = functions.https.onCall(async (data, context) => {
     if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Login required');
+    
+    const { requestId, complimentId } = data;
     const senderUid = context.auth.uid;
-    const { complimentId } = data;
-    const compRef = db.collection('compliments').doc(complimentId);
-    const compSnap = await compRef.get();
-    if (!compSnap.exists) throw new functions.https.HttpsError('not-found', 'Not found');
-    const compData = compSnap.data();
-    if (compData.sender_uid !== senderUid) throw new functions.https.HttpsError('permission-denied', 'Not owner');
-    const batch = db.batch();
-    batch.update(compRef, { status: 'claimed', claimed: true, approved_at: admin.firestore.FieldValue.serverTimestamp() });
-    if (compData.tip_amount > 0 && compData.claimer_uid) {
-        batch.set(db.collection('wallets').doc(compData.claimer_uid), { balance: admin.firestore.FieldValue.increment(compData.tip_amount) }, { merge: true });
-        batch.set(db.collection('transactions').doc(), { uid: compData.claimer_uid, type: 'tip_received', amount: compData.tip_amount, description: `Gift from ${compData.sender || 'Friend'}`, timestamp: admin.firestore.FieldValue.serverTimestamp(), related_compliment: complimentId });
+
+    try {
+        let targetUid, compId, tipAmount;
+        
+        if (requestId) {
+            const reqRef = db.collection('claim_requests').doc(requestId);
+            const reqSnap = await reqRef.get();
+            if (!reqSnap.exists) throw new Error("Request not found");
+            
+            const reqData = reqSnap.data();
+            if (reqData.sender_uid !== senderUid) throw new Error("Not your compliment");
+            
+            targetUid = reqData.requester_uid;
+            compId = reqData.compliment_id;
+            
+            await reqRef.update({ status: 'approved', approved_at: admin.firestore.FieldValue.serverTimestamp() });
+        } else {
+            throw new Error("Must provide requestId");
+        }
+
+        const compRef = db.collection('compliments').doc(compId);
+        const compSnap = await compRef.get();
+        const compData = compSnap.data();
+        tipAmount = compData.tip_amount || 0;
+
+        const batch = db.batch();
+
+        // 1. UPDATE PUBLIC CARD (Toggle Protocol: NO DELETION)
+        batch.update(compRef, { 
+            status: 'claimed', 
+            claimed: true, 
+            claimer_uid: targetUid,
+            approved_at: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        // 2. TRANSFER MONEY
+        if (tipAmount > 0) {
+            const walletRef = db.collection('wallets').doc(targetUid);
+            batch.set(walletRef, { balance: admin.firestore.FieldValue.increment(tipAmount) }, { merge: true });
+            
+            const txnRef = db.collection('transactions').doc();
+            batch.set(txnRef, { 
+                uid: targetUid, 
+                type: 'tip_received', 
+                amount: tipAmount, 
+                description: `Gift from ${compData.sender || 'Friend'}`, 
+                timestamp: admin.firestore.FieldValue.serverTimestamp(), 
+                related_compliment: compId 
+            });
+        }
+
+        // 3. DENY LOSERS
+        const otherReqs = await db.collection('claim_requests')
+            .where('compliment_id', '==', compId)
+            .where('status', '==', 'pending')
+            .get();
+
+        otherReqs.forEach(doc => {
+            if (doc.id !== requestId) {
+                batch.update(doc.ref, { status: 'denied' });
+                
+                const chatId = `chat_${compId}_${doc.data().requester_uid}`;
+                const msgRef = db.collection('chats').doc(chatId).collection('messages').doc();
+                batch.set(msgRef, {
+                    text: "🔒 This compliment was claimed by someone else.",
+                    senderUid: "SYSTEM",
+                    senderName: "eCompliment",
+                    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                    type: "system"
+                });
+            }
+        });
+
+        await batch.commit();
+        return { success: true };
+
+    } catch (error) {
+        console.error("Approval Error:", error);
+        throw new functions.https.HttpsError('internal', error.message);
     }
-    await batch.commit();
-    return { success: true };
 });
 
 exports.syncAuthToFirestore = functions.https.onCall(async (data, context) => {
-    /* (Sync code omitted for brevity, keeping it unchanged is fine) */
     return { success: true };
 });
