@@ -21,7 +21,7 @@ export default function DigitalBulletinBoard() {
   
   // MATCHING STATE
   const [compliment, setCompliment] = useState<any>(null);
-  const [candidates, setCandidates] = useState<any[]>([]); // <--- NEW: For collisions
+  const [candidates, setCandidates] = useState<any[]>([]); 
   const [isUnlocked, setIsUnlocked] = useState(false);
   
   // Theme State
@@ -80,7 +80,7 @@ export default function DigitalBulletinBoard() {
       setLoading(true); setError(''); setCompliment(null); setCandidates([]); setIsUnlocked(false);
       
       try {
-          // 1. GET ALL MATCHES (Not just the first one)
+          // 1. GET ALL MATCHES
           const q = query(collection(db, "compliments"), where("search_code", "==", searchCode));
           const snap = await getDocs(q);
           
@@ -90,15 +90,31 @@ export default function DigitalBulletinBoard() {
 
           // 3. DECISION LOGIC
           if (activeMatches.length === 0) {
-              if (allMatches.length > 0) setError("This card has already been claimed.");
-              else setError("Card not found. Check the code.");
+              // CASE: No active card found.
+              
+              // STEALTH MODE: 
+              // Only reveal "Claimed" status if the user is the Sender or the Winner.
+              // Everyone else (Bots/Strangers) gets "Card not found".
+              let errorMsg = "Card not found. Check the code.";
+              
+              if (allMatches.length > 0 && auth.currentUser) {
+                  const myUid = auth.currentUser.uid;
+                  // Check if I am "Involved" (Sender or Claimer)
+                  const isInvolved = allMatches.some((m: any) => 
+                      m.sender_uid === myUid || m.claimer_uid === myUid
+                  );
+                  
+                  if (isInvolved) {
+                      errorMsg = "This card has already been claimed.";
+                  }
+              }
+              
+              setError(errorMsg);
           } 
           else if (activeMatches.length === 1) {
-              // Perfect Match
               setCompliment(activeMatches[0]);
           } 
           else {
-              // COLLISION DETECTED (One in a Million)
               setCandidates(activeMatches);
           }
 

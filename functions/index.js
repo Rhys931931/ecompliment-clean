@@ -19,6 +19,7 @@ exports.sendCompliment = functions.https.onCall(async (data, context) => {
     return db.runTransaction(async (t) => {
         const walletDoc = await t.get(walletRef);
         const currentBalance = walletDoc.exists ? (walletDoc.data().balance || 0) : 0;
+
         if (tip > 0 && currentBalance < tip) throw new functions.https.HttpsError('failed-precondition', 'Insufficient funds');
 
         const searchCode = Math.floor(10000000 + Math.random() * 90000000).toString();
@@ -84,7 +85,7 @@ exports.createClaim = functions.https.onCall(async (data, context) => {
     }
 });
 
-// 3. APPROVE CLAIM (The Battle Royale Judge - TOGGLE PROTOCOL)
+// 3. APPROVE CLAIM (The Battle Royale Judge - WITH CONNECTION LOGIC)
 exports.approveClaim = functions.https.onCall(async (data, context) => {
     if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Login required');
     
@@ -103,6 +104,7 @@ exports.approveClaim = functions.https.onCall(async (data, context) => {
         const targetUid = reqData.requester_uid;
         const compId = reqData.compliment_id;
         
+        // Mark Request Approved
         await reqRef.update({ status: 'approved', approved_at: admin.firestore.FieldValue.serverTimestamp() });
 
         // B. Process Win
@@ -113,7 +115,7 @@ exports.approveClaim = functions.https.onCall(async (data, context) => {
 
         const batch = db.batch();
 
-        // 1. UPDATE PUBLIC CARD (Toggle Only - NO DELETE)
+        // 1. UPDATE PUBLIC CARD (Toggle Only)
         batch.update(compRef, { 
             status: 'claimed', 
             claimed: true, 
@@ -137,7 +139,17 @@ exports.approveClaim = functions.https.onCall(async (data, context) => {
             });
         }
 
-        // 3. DENY LOSERS (Battle Royale)
+        // 3. CREATE CONNECTION (The Bond)
+        const connId = [senderUid, targetUid].sort().join('_');
+        const connRef = db.collection('connections').doc(connId);
+        batch.set(connRef, {
+            participants: [senderUid, targetUid],
+            origin_compliment_id: compId,
+            status: 'connected',
+            last_interaction: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+
+        // 4. DENY LOSERS
         const otherReqs = await db.collection('claim_requests')
             .where('compliment_id', '==', compId)
             .where('status', '==', 'pending')
@@ -147,7 +159,6 @@ exports.approveClaim = functions.https.onCall(async (data, context) => {
             if (doc.id !== requestId) {
                 batch.update(doc.ref, { status: 'denied' });
                 
-                // NOTIFY LOSERS IN CHAT
                 const chatId = `chat_${compId}_${doc.data().requester_uid}`;
                 const msgRef = db.collection('chats').doc(chatId).collection('messages').doc();
                 batch.set(msgRef, {

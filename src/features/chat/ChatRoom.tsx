@@ -11,10 +11,12 @@ import { useNotificationPermission } from '../notifications/hooks/useNotificatio
 import { useClaimSystem } from '../commerce/hooks/useClaimSystem';
 
 export default function ChatRoom() {
-  const { complimentId } = useParams();
+  const { complimentId } = useParams(); // NOTE: This is actually the CHAT ID from the URL
   const navigate = useNavigate();
   const [user, setUser] = useState<any>(null);
   const [messages, setMessages] = useState<any[]>([]);
+  
+  // Data State
   const [roomDetails, setRoomDetails] = useState<any>(null);
   const [complimentData, setComplimentData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -22,26 +24,26 @@ export default function ChatRoom() {
   // Hook for the Bell
   const { permission, requestPermission, loading: notifyLoading } = useNotificationPermission(user);
   
-  // Hook for the Claim Button - THE BRAIN
-  const { submitClaimRequest, claiming, hasRequested, checkStatus } = useClaimSystem(user, complimentId, complimentData);
+  // THE FIX: We pass 'roomDetails?.compliment_id' (The Parent Card) instead of 'complimentId' (The Chat)
+  const realComplimentId = roomDetails?.compliment_id;
+  const { submitClaimRequest, claiming, hasRequested } = useClaimSystem(user, realComplimentId, complimentData);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
         setUser(currentUser);
         if (complimentId) {
+             // 1. Listen to Chat Room
              const unsubRoom = onSnapshot(doc(db, "chats", complimentId), async (docSnap) => {
                  if (docSnap.exists()) {
                      const data = docSnap.data();
                      setRoomDetails({ id: docSnap.id, ...data });
                      
+                     // 2. Fetch Origin Compliment
                      if (data.compliment_id) {
                          const compSnap = await getDoc(doc(db, "compliments", data.compliment_id));
                          if (compSnap.exists()) {
-                             const cData = compSnap.data();
-                             setComplimentData(cData);
-                             // console.log("ChatRoom: Loaded Compliment Data", cData);
-                             checkStatus();
+                             setComplimentData(compSnap.data());
                          }
                      }
                  }
@@ -84,10 +86,8 @@ export default function ChatRoom() {
   // VISIBILITY LOGIC
   const isSender = user?.uid === complimentData?.sender_uid;
   const isClaimed = complimentData?.claimed;
+  // Only show if: Data loaded, Not claimed, I'm not the sender, and I haven't asked yet
   const showClaim = complimentData && !isClaimed && !isSender && !hasRequested;
-
-  // Debug Log for Button Visibility
-  // console.log("ChatRoom: Button Logic", { isSender, isClaimed, hasRequested, showClaim });
 
   return (
     <div className="app-container" style={{background:'#fff', height:'100dvh', display:'flex', flexDirection:'column', padding:0}}>
@@ -96,10 +96,7 @@ export default function ChatRoom() {
           title={roomDetails?.compliment_title || 'Chat'} 
           isGuest={roomDetails?.is_guest_chat}
           canClaim={showClaim}
-          onClaim={() => {
-              console.log("ChatRoom: Claim Button Clicked!");
-              submitClaimRequest();
-          }}
+          onClaim={submitClaimRequest}
           notificationPermission={permission}
           onRequestNotify={requestPermission}
           notifyLoading={notifyLoading || claiming}
