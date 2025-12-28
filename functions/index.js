@@ -52,7 +52,6 @@ exports.createClaim = functions.https.onCall(async (data, context) => {
         const compData = compSnap.data();
         let senderUid = compData.sender_uid;
 
-        // Self-Healing
         if (!senderUid) {
              let secretQuery = await db.collection('compliment_secrets').where('search_code', '==', String(compData.search_code)).limit(1).get();
              if (secretQuery.empty) secretQuery = await db.collection('compliment_secrets').where('search_code', '==', Number(compData.search_code)).limit(1).get();
@@ -85,7 +84,7 @@ exports.createClaim = functions.https.onCall(async (data, context) => {
     }
 });
 
-// 3. APPROVE CLAIM (The Battle Royale Judge - WITH CONNECTION LOGIC)
+// 3. APPROVE CLAIM (The Live Link Strategy)
 exports.approveClaim = functions.https.onCall(async (data, context) => {
     if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Login required');
     
@@ -93,7 +92,6 @@ exports.approveClaim = functions.https.onCall(async (data, context) => {
     const senderUid = context.auth.uid;
 
     try {
-        // A. Verify Request
         const reqRef = db.collection('claim_requests').doc(requestId);
         const reqSnap = await reqRef.get();
         if (!reqSnap.exists) throw new Error("Request not found");
@@ -104,18 +102,15 @@ exports.approveClaim = functions.https.onCall(async (data, context) => {
         const targetUid = reqData.requester_uid;
         const compId = reqData.compliment_id;
         
-        // Mark Request Approved
         await reqRef.update({ status: 'approved', approved_at: admin.firestore.FieldValue.serverTimestamp() });
 
-        // B. Process Win
         const compRef = db.collection('compliments').doc(compId);
-        const compSnap = await compRef.get();
-        const compData = compSnap.data();
+        const compData = (await compRef.get()).data();
         const tipAmount = compData.tip_amount || 0;
 
         const batch = db.batch();
 
-        // 1. UPDATE PUBLIC CARD (Toggle Only)
+        // 1. UPDATE CARD
         batch.update(compRef, { 
             status: 'claimed', 
             claimed: true, 
@@ -139,14 +134,27 @@ exports.approveClaim = functions.https.onCall(async (data, context) => {
             });
         }
 
-        // 3. CREATE CONNECTION (The Bond)
+        // 3. CREATE CONNECTION (Using Blind Keys for Public Access)
+        const senderSnap = await db.collection('users').doc(senderUid).get();
+        const targetSnap = await db.collection('users').doc(targetUid).get();
+        
+        // We fetch the BLIND KEY (The Public Mask), not the private data
+        const senderKey = senderSnap.exists ? (senderSnap.data().blind_key || '') : '';
+        const targetKey = targetSnap.exists ? (targetSnap.data().blind_key || '') : '';
+
         const connId = [senderUid, targetUid].sort().join('_');
         const connRef = db.collection('connections').doc(connId);
+        
         batch.set(connRef, {
             participants: [senderUid, targetUid],
             origin_compliment_id: compId,
             status: 'connected',
-            last_interaction: admin.firestore.FieldValue.serverTimestamp()
+            last_interaction: admin.firestore.FieldValue.serverTimestamp(),
+            // THE LINK: We store the keys to their Public Profiles
+            public_keys: {
+                [senderUid]: senderKey,
+                [targetUid]: targetKey
+            }
         }, { merge: true });
 
         // 4. DENY LOSERS
@@ -158,7 +166,6 @@ exports.approveClaim = functions.https.onCall(async (data, context) => {
         otherReqs.forEach(doc => {
             if (doc.id !== requestId) {
                 batch.update(doc.ref, { status: 'denied' });
-                
                 const chatId = `chat_${compId}_${doc.data().requester_uid}`;
                 const msgRef = db.collection('chats').doc(chatId).collection('messages').doc();
                 batch.set(msgRef, {
