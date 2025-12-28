@@ -48,13 +48,36 @@ export default function DigitalBulletinBoard() {
       } catch (e) { console.error("Theme load failed", e); }
   };
 
+  // --- HELPER: LIVE LINK FETCH ---
+  // Takes a raw compliment card, fetches the sender's LIVE face using the blind key
+  const enrichWithProfile = async (cardData: any) => {
+      if (!cardData.owner_index) return cardData; // No key, return as-is
+
+      try {
+          // Fetch from PUBLIC PROFILES (Allowed by rules)
+          const profileSnap = await getDoc(doc(db, "public_profiles", cardData.owner_index));
+          if (profileSnap.exists()) {
+              const pData = profileSnap.data();
+              return {
+                  ...cardData,
+                  sender: pData.display_name || cardData.sender || 'Anonymous',
+                  sender_photo: pData.photo_url || cardData.sender_photo || null,
+                  sender_bio: pData.bio || ''
+              };
+          }
+      } catch (e) {
+          console.error("Live Link failed, falling back to static data", e);
+      }
+      return cardData;
+  };
+
   const handleMagicLogin = async (token: string) => {
       setLoading(true); setError('');
       try {
           const q = query(collection(db, "compliments"), where("magic_token", "==", token));
           const snap = await getDocs(q);
           if (!snap.empty) {
-              const docData = { id: snap.docs[0].id, ...snap.docs[0].data() } as any;
+              let docData = { id: snap.docs[0].id, ...snap.docs[0].data() } as any;
               
               if (docData.claimed) {
                   setError("This gift has already been claimed.");
@@ -62,7 +85,12 @@ export default function DigitalBulletinBoard() {
                   return;
               }
 
+              // 1. BURN TOKEN
               const burned = await GhostProtocol.validateAndBurn(docData.id, token);
+              
+              // 2. FETCH LIVE FACE
+              docData = await enrichWithProfile(docData);
+
               if (burned) { 
                   setCompliment(docData); 
                   setIsUnlocked(true); 
@@ -80,49 +108,40 @@ export default function DigitalBulletinBoard() {
       setLoading(true); setError(''); setCompliment(null); setCandidates([]); setIsUnlocked(false);
       
       try {
-          // 1. GET ALL MATCHES
           const q = query(collection(db, "compliments"), where("search_code", "==", searchCode));
           const snap = await getDocs(q);
           
-          // 2. PARSE & FILTER (The Toggle Protocol)
           const allMatches = snap.docs.map(d => ({ id: d.id, ...d.data() }));
           const activeMatches = allMatches.filter((c: any) => !c.claimed);
 
-          // 3. DECISION LOGIC
           if (activeMatches.length === 0) {
-              // CASE: No active card found.
-              
-              // STEALTH MODE: 
-              // Only reveal "Claimed" status if the user is the Sender or the Winner.
-              // Everyone else (Bots/Strangers) gets "Card not found".
               let errorMsg = "Card not found. Check the code.";
               
+              // STEALTH MODE CHECK
               if (allMatches.length > 0 && auth.currentUser) {
                   const myUid = auth.currentUser.uid;
-                  // Check if I am "Involved" (Sender or Claimer)
-                  const isInvolved = allMatches.some((m: any) => 
-                      m.sender_uid === myUid || m.claimer_uid === myUid
-                  );
-                  
-                  if (isInvolved) {
-                      errorMsg = "This card has already been claimed.";
-                  }
+                  const isInvolved = allMatches.some((m: any) => m.sender_uid === myUid || m.claimer_uid === myUid);
+                  if (isInvolved) errorMsg = "This card has already been claimed.";
               }
-              
               setError(errorMsg);
           } 
           else if (activeMatches.length === 1) {
-              setCompliment(activeMatches[0]);
+              // SINGLE MATCH: Fetch Profile
+              const enriched = await enrichWithProfile(activeMatches[0]);
+              setCompliment(enriched);
           } 
           else {
-              setCandidates(activeMatches);
+              // COLLISION: Fetch Profiles for ALL candidates so user can choose the face
+              const enrichedCandidates = await Promise.all(
+                  activeMatches.map(async (match) => await enrichWithProfile(match))
+              );
+              setCandidates(enrichedCandidates);
           }
 
       } catch (err) { console.error(err); setError("Search failed."); }
       setLoading(false);
   };
 
-  // --- ACTIONS ---
   const handleReply = async () => {
       if (!compliment) return;
       setLoading(true);
@@ -164,7 +183,6 @@ export default function DigitalBulletinBoard() {
       if (!auth.currentUser) signInAnonymously(auth);
   };
 
-  // --- RENDER ---
   const containerStyle = bgImage ? { backgroundImage: `url(${bgImage})` } : {};
   const navStyle = bgImage ? { background: themeColor, color: themeText } : {};
   const btnStyle = { background: themeColor, color: themeText };
@@ -174,7 +192,6 @@ export default function DigitalBulletinBoard() {
       <NavBar user={auth.currentUser} style={navStyle} />
       <main className="content-area">
         
-        {/* STATE MACHINE: Candidates -> Search -> Unlock -> Display */}
         {candidates.length > 0 ? (
             <SelectionScreen 
                 candidates={candidates}

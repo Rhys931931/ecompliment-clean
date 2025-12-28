@@ -20,6 +20,7 @@ interface Connection {
   photo_url?: string;
   status: string;
   origin_compliment_id?: string;
+  blind_key?: string; // <--- NEW: Store the key for the modal
 }
 
 export default function Connections() {
@@ -29,7 +30,9 @@ export default function Connections() {
   const [referralCode, setReferralCode] = useState('');
   const [copied, setCopied] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  
+  // NEW: Track the whole object, not just ID
+  const [selectedConnection, setSelectedConnection] = useState<Connection | null>(null);
   const [chatLoading, setChatLoading] = useState<string | null>(null);
 
   const navigate = useNavigate();
@@ -48,11 +51,9 @@ export default function Connections() {
 
   const loadData = async (uid: string) => {
       try {
-          // Get my own data first
           const userDoc = await getDoc(doc(db, "users", uid));
           if (userDoc.exists()) setReferralCode(userDoc.data().referral_code || "GEN-CODE");
 
-          // Fetch Connections Ticket
           const q = query(collection(db, "connections"), where("participants", "array-contains", uid));
           const snap = await getDocs(q);
           
@@ -63,23 +64,23 @@ export default function Connections() {
               const otherUid = data.participants.find((id: string) => id !== uid);
               
               if (otherUid) {
-                  // NEW LOGIC: Use the Blind Key to fetch Public Profile
+                  // Use the Stamped Blind Key
                   const blindKey = data.public_keys?.[otherUid];
 
                   if (blindKey) {
-                      // Fetch from PUBLIC collection (Allowed by Rules)
+                      // Fetch from PUBLIC PROFILES
                       const promise = getDoc(doc(db, "public_profiles", blindKey)).then(pSnap => {
                           const pData = pSnap.exists() ? pSnap.data() : null;
                           return {
                               id: d.id,
                               other_uid: otherUid,
-                              // If profile exists, use it. If not, they haven't set it up yet.
                               name: pData?.display_name || "Anonymous User",
                               role: 'Connection',
                               date: data.last_interaction,
                               photo_url: pData?.photo_url || null,
                               status: data.status,
-                              origin_compliment_id: data.origin_compliment_id
+                              origin_compliment_id: data.origin_compliment_id,
+                              blind_key: blindKey // <--- SAVE IT
                           } as Connection;
                       });
                       profilePromises.push(promise);
@@ -87,20 +88,14 @@ export default function Connections() {
               }
           });
           
-          // Wait for all profiles to load in parallel
           const results = await Promise.all(profilePromises);
-          
-          // Filter out any failed loads and sort
           const validResults = results.filter(c => c !== null);
           validResults.sort((a, b) => (b.date?.seconds || 0) - (a.date?.seconds || 0));
           
           setConnections(validResults);
 
-      } catch (e) {
-          console.error("Error loading connections:", e);
-      } finally {
-          setLoading(false);
-      }
+      } catch (e) { console.error(e); } 
+      finally { setLoading(false); }
   };
 
   const startChat = async (conn: Connection) => {
@@ -109,17 +104,14 @@ export default function Connections() {
       try {
           if (conn.origin_compliment_id) {
               const chatRef = doc(db, "chats", conn.origin_compliment_id);
-              // Ensure chat exists / heal it
               await setDoc(chatRef, {
                   participants: [user.uid, conn.other_uid],
                   last_updated: serverTimestamp(),
                   compliment_title: conn.name,
                   compliment_id: conn.origin_compliment_id
               }, { merge: true });
-              
               navigate(`/chat/${conn.origin_compliment_id}`);
           } else {
-              // Fallback
               const newChat = await addDoc(collection(db, "chats"), {
                   participants: [user.uid, conn.other_uid],
                   last_updated: serverTimestamp(),
@@ -167,11 +159,20 @@ export default function Connections() {
               loading={loading}
               chatLoadingId={chatLoading}
               onStartChat={startChat}
-              onSelectUser={setSelectedUserId}
+              onSelectUser={(uid) => {
+                  // Find the connection object and set it
+                  const conn = connections.find(c => c.other_uid === uid);
+                  if (conn) setSelectedConnection(conn);
+              }}
           />
 
-          {selectedUserId && (
-              <ProfileModal userId={selectedUserId} isOpen={!!selectedUserId} onClose={() => setSelectedUserId(null)} />
+          {/* PASS THE BLIND KEY */}
+          {selectedConnection && (
+              <ProfileModal 
+                  blindKey={selectedConnection.blind_key} // <--- THE FIX
+                  isOpen={!!selectedConnection} 
+                  onClose={() => setSelectedConnection(null)} 
+              />
           )}
       </main>
     </div>
